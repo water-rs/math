@@ -16,7 +16,7 @@ use alloc::vec::Vec;
 
 use pulldown_latex::Storage;
 use pulldown_latex::event::{Content, DelimiterType, Event, Grouping, ScriptType, Visual};
-use waterui_str::Str;
+use suiteki::Str;
 
 use crate::ast::{MathClass, MathItem, Operator};
 
