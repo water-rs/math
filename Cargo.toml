@@ -1,61 +1,93 @@
+[workspace]
+resolver = "2"
+
 [package]
 name = "waterui-math"
-version = "0.1.0"
-edition.workspace = true
-authors.workspace = true
-license.workspace = true
+version = "0.1.1"
+edition = "2024"
+rust-version = "1.95"
+authors = ["Lexo Liu <me@lexo.cool>"]
+license = "Apache-2.0 OR MIT"
 readme = "README.md"
-repository.workspace = true
+repository = "https://github.com/water-rs/math"
 description = "Mathematical formula rendering for WaterUI, laid out against the OpenType MATH table"
 keywords = ["math", "latex", "mathml", "opentype", "waterui"]
 categories = ["gui"]
 
+[lints.rust]
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+correctness = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "warn"
+multiple_crate_versions = { level = "allow", priority = 1 }
+
 [dependencies]
-waterui-core.workspace = true
-waterui-graphics.workspace = true
-waterui-layout.workspace = true
-waterui-str.workspace = true
-nami.workspace = true
+waterui-core = "0.3.2"
+waterui-graphics = { version = "0.4.1", default-features = false }
+waterui-layout = "0.3.2"
+waterui-str = "0.3.0"
+nami = "0.11.2"
 # The math family is looked up in the application's shared font collection,
 # which the host installs and this crate only reads: `parley` is here for the
 # `FontContext` that collection hands out, not to discover fonts.
-parley = { workspace = true, features = ["std"] }
+parley = { version = "0.11", default-features = false, features = ["std"] }
 # `system-fonts` is what lets a host with no font stack of its own — the native
 # Apple, Android and GTK backends — install a collection at all. A formula is
 # typeset from real faces, so a build carrying this component must be able to
 # reach them.
-waterui-text = { workspace = true, features = ["system-fonts"] }
-kurbo.workspace = true
-peniko.workspace = true
-ttf-parser.workspace = true
-pulldown-latex.workspace = true
-quick-xml.workspace = true
+waterui-text = { version = "0.4.1", features = ["system-fonts"] }
+kurbo = "0.13"
+peniko = "0.6"
+ttf-parser = "0.25"
+pulldown-latex = "0.8"
+quick-xml = "0.42"
 # Speech. A formula drawn as filled paths has no content an assistive technology
 # can reach, and the MathML this crate publishes is markup rather than a
 # sentence — this is what turns one into the other, and the result is the name
 # the formula's accessibility node carries. Not optional: a component that
 # cannot be read out has no accessibility tree worth the name, and a crate this
 # one is not linked into pays nothing for it.
-mathcat.workspace = true
-serde = { workspace = true, features = ["derive"] }
-thiserror.workspace = true
-toml.workspace = true
-tracing.workspace = true
+mathcat = { version = "0.7.5", features = ["include-zip"] }
+serde = { version = "1.0", default-features = false, features = ["alloc", "derive"] }
+thiserror = "2.0.20"
+toml = "1.1.5"
+tracing = "0.1.44"
 
 [dev-dependencies]
 # The gallery drives a headless surface, which is the only thing in this crate
 # that touches the GPU stack at all.
-waterui-graphics = { workspace = true, features = ["gpu"] }
-waterui = { path = "../../.." }
-waterui-testing = { path = "../../../testing" }
-pollster.workspace = true
-wgpu.workspace = true
-
-[lints]
-workspace = true
+waterui-graphics = { version = "0.4.1", default-features = false, features = ["gpu"] }
+waterui = "0.4.0"
+waterui-testing = "0.4.0"
+pollster = "1.0"
+wgpu = "29.0.4"
 
 # The formula font. Layout reads the OpenType `MATH` table, so a face without
 # one cannot lay out a formula at all; this is the default the component asks
 # for when the environment names no other math family.
 [[package.metadata.waterui.assets.font]]
 name = "STIX Two Math"
+
+# The WaterUI packages above come from crates.io, so this repository builds
+# against the same released APIs its users get. The third-party pins below are
+# the framework's own: the published `waterui-graphics` was built with these
+# forks, and dropping them here would render this crate's tests through
+# different code than the framework runs.
+[patch.crates-io]
+xcb = { git = "https://github.com/rust-x-bindings/rust-xcb", rev = "ae3b2cd080e78173223038ccbebdc644eaf4a9ad" }
+block = { git = "https://github.com/Dicklesworthstone/rust-block", rev = "b39ae859d1ee8e8cb5eef6a516471f1578d26b96" }
+vello = { git = "https://github.com/lexoliu/vello", rev = "5e5f538556be16527f67379b105af82f408b747d" }
+vello_hybrid = { git = "https://github.com/lexoliu/vello", rev = "d68d9e9825bcd1ffee762323881c13a2e7a3f639" }
+vello_common = { git = "https://github.com/lexoliu/vello", rev = "d68d9e9825bcd1ffee762323881c13a2e7a3f639" }
+vello_sparse_shaders = { git = "https://github.com/lexoliu/vello", rev = "d68d9e9825bcd1ffee762323881c13a2e7a3f639" }
+glifo = { git = "https://github.com/lexoliu/vello", rev = "d68d9e9825bcd1ffee762323881c13a2e7a3f639" }
