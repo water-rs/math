@@ -115,7 +115,7 @@ fn renders_the_formula_gallery_on_both_scene_engines() {
         ] {
             let content = MathContent::new(
                 fonts.clone(),
-                waterui_str::Str::from(*source),
+                suiteki::Str::from(*source),
                 48.0,
                 MathStyle::Display,
                 DEFAULT_MATH_FAMILY,

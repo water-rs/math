@@ -7,11 +7,11 @@
 use core::time::Duration;
 
 use nami::Binding;
+use suiteki::Str;
 use waterui::ViewExt as _;
 use waterui_math::ast::MathStyle;
 use waterui_math::view::Math;
 use waterui_math::{latex, mathml, speech};
-use waterui_str::Str;
 use waterui_testing::{Role, SemanticApp, UiBuilder};
 
 const FRACTION: &str = r"\frac{a}{b}";

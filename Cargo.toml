@@ -35,7 +35,7 @@ multiple_crate_versions = { level = "allow", priority = 1 }
 waterui-core = "0.3.2"
 waterui-graphics = { version = "0.4.1", default-features = false }
 waterui-layout = "0.3.2"
-waterui-str = "0.3.0"
+suiteki = { version = "0.1", features = ["nami"] }
 nami = "0.11.2"
 # The math family is looked up in the application's shared font collection,
 # which the host installs and this crate only reads: `parley` is here for the

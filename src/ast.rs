@@ -12,7 +12,7 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-use waterui_str::Str;
+use suiteki::Str;
 
 /// How an atom relates to its neighbours.
 ///
