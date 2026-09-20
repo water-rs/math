@@ -123,10 +123,10 @@ waterui-webview = { git = "https://github.com/water-rs/waterui", rev = "d6807a87
 # comes from `waterui-testing`, `waterui-image` from `waterui-media`, and
 # `waterui-svg` from `waterui-internal` —
 # pinned to the `dev` heads that adopt the same framework revision.
-hydrolysis = { git = "https://github.com/water-rs/hydrolysis", rev = "d3a513d0f4410d1b2593e0309c24ea94d92cf99e" }
-hydrolysis-m3 = { git = "https://github.com/water-rs/hydrolysis-m3", rev = "2ddf27c2a9f5d0c4a04c4d586462a429eefa8bd7" }
-waterui-image = { git = "https://github.com/water-rs/image", rev = "646d2eb1c7dda8c78283fd168e726fb260a84e65" }
-waterui-svg = { git = "https://github.com/water-rs/svg", rev = "2272a62b4bcd7b3d1deb3ba03ba8a88ff927616a" }
+hydrolysis = { git = "https://github.com/water-rs/hydrolysis", rev = "71f18452543ea6501de73f003dafb6235f4ba3a7" }
+hydrolysis-m3 = { git = "https://github.com/water-rs/hydrolysis-m3", rev = "38499ef90b0a9e0d3b413fa78350325e88e21044" }
+waterui-image = { git = "https://github.com/water-rs/image", rev = "6b3077431d2edccfd6c7d0b4fb45d69bd1d5bc56" }
+waterui-svg = { git = "https://github.com/water-rs/svg", rev = "12553db2de92e66ff919f56c6dd98ba42f757a00" }
 
 # The third-party pins below are the framework's own `[patch.crates-io]` at the
 # pinned revision: the git-pinned `waterui-*` crates declare the registry
