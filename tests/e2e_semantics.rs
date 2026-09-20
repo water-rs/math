@@ -51,19 +51,12 @@ fn quadratic_formula() -> impl waterui::View {
 /// loud.
 #[waterui::test(unlabelled_formula)]
 fn an_unnamed_formula_is_announced_as_speech(app: &mut SemanticApp) {
-    let node = app
-        .query()
+    // The semantic tree answers what the node says, not the box it draws
+    // into; geometry belongs to the rendered runtime (`tests/gallery.rs`).
+    app.query()
         .role(Role::IMAGE)
         .label(spoken(FRACTION, MathStyle::Text))
-        .single();
-
-    let bounds = node.bounds();
-    assert!(
-        bounds.width() > 0.0 && bounds.height() > 0.0,
-        "the formula's node must occupy the box it draws into, got {}x{}",
-        bounds.width(),
-        bounds.height()
-    );
+        .assert_exists();
 }
 
 /// The quadratic formula is carried as a sentence a listener can follow, not as
