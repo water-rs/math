@@ -1,61 +1,137 @@
+[workspace]
+resolver = "2"
+
 [package]
 name = "waterui-math"
-version = "0.1.0"
-edition.workspace = true
-authors.workspace = true
-license.workspace = true
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.95"
+authors = ["Lexo Liu <me@lexo.cool>"]
+license = "Apache-2.0 OR MIT"
 readme = "README.md"
-repository.workspace = true
+repository = "https://github.com/water-rs/math"
 description = "Mathematical formula rendering for WaterUI, laid out against the OpenType MATH table"
 keywords = ["math", "latex", "mathml", "opentype", "waterui"]
 categories = ["gui"]
 
+[lints.rust]
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+correctness = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "warn"
+multiple_crate_versions = { level = "allow", priority = 1 }
+
 [dependencies]
-waterui-core.workspace = true
-waterui-graphics.workspace = true
-waterui-layout.workspace = true
-waterui-str.workspace = true
-nami.workspace = true
+waterui-core = "0.5.0"
+waterui-graphics = { version = "0.5.0", default-features = false }
+waterui-layout = "0.5.0"
+suiteki = { version = "0.1", features = ["nami"] }
+nami = "0.11.2"
 # The math family is looked up in the application's shared font collection,
 # which the host installs and this crate only reads: `parley` is here for the
 # `FontContext` that collection hands out, not to discover fonts.
-parley = { workspace = true, features = ["std"] }
+parley = { version = "0.11", default-features = false, features = ["std"] }
 # `system-fonts` is what lets a host with no font stack of its own — the native
 # Apple, Android and GTK backends — install a collection at all. A formula is
 # typeset from real faces, so a build carrying this component must be able to
 # reach them.
-waterui-text = { workspace = true, features = ["system-fonts"] }
-kurbo.workspace = true
-peniko.workspace = true
-ttf-parser.workspace = true
-pulldown-latex.workspace = true
-quick-xml.workspace = true
+waterui-text = { version = "0.5.0", features = ["system-fonts"] }
+kurbo = "0.13"
+peniko = "0.6"
+ttf-parser = "0.25"
+pulldown-latex = "0.8"
+quick-xml = "0.42"
 # Speech. A formula drawn as filled paths has no content an assistive technology
 # can reach, and the MathML this crate publishes is markup rather than a
 # sentence — this is what turns one into the other, and the result is the name
 # the formula's accessibility node carries. Not optional: a component that
 # cannot be read out has no accessibility tree worth the name, and a crate this
 # one is not linked into pays nothing for it.
-mathcat.workspace = true
-serde = { workspace = true, features = ["derive"] }
-thiserror.workspace = true
-toml.workspace = true
-tracing.workspace = true
+mathcat = { version = "0.7.5", features = ["include-zip"] }
+serde = { version = "1.0", default-features = false, features = ["alloc", "derive"] }
+thiserror = "2.0.20"
+toml = "1.1.5"
+tracing = "0.1.44"
 
 [dev-dependencies]
 # The gallery drives a headless surface, which is the only thing in this crate
 # that touches the GPU stack at all.
-waterui-graphics = { workspace = true, features = ["gpu"] }
-waterui = { path = "../../.." }
-waterui-testing = { path = "../../../testing" }
-pollster.workspace = true
-wgpu.workspace = true
-
-[lints]
-workspace = true
+waterui-graphics = { version = "0.5.0", default-features = false, features = ["gpu"] }
+waterui = "0.5.0"
+waterui-testing = "0.5.0"
+pollster = "1.0"
+wgpu = "29.0.4"
 
 # The formula font. Layout reads the OpenType `MATH` table, so a face without
 # one cannot lay out a formula at all; this is the default the component asks
 # for when the environment names no other math family.
 [[package.metadata.waterui.assets.font]]
 name = "STIX Two Math"
+
+# The 0.5.0 framework release is in flight from b25438ae on `water-rs/waterui`
+# `main`; release-plz publishes the `waterui-*` version group from that commit
+# in dependency order. Until every crate this graph resolves is on crates.io,
+# all of them are pinned to that same commit: the framework crates reach each
+# other by path, so a registry copy beside a git twin would compile two
+# `waterui-core`. Sibling components and the hydrolysis pair are pinned to their
+# own `release/0.5.0-wave` commits, which require the same framework versions.
+# Publishing ignores this table; it drops once the wave is on the registry.
+[patch.crates-io]
+waterui = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-assets = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-assets-core = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-assets-macros = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-assets-planner = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-backend-core = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-controls = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-core = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-dylib = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-form = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-graphics = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-icon = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-inspector-protocol = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-internal = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-layout = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-locale = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-macros = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-map = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-media = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-navigation = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-preview-protocol = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-shape = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-testing = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-text = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-url = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-video = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-watcher-set = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-webview = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+# Wave satellites the graph reaches through registry requirements — Hydrolysis
+# comes from `waterui-testing`, `waterui-image` from `waterui-media`, and
+# `waterui-svg` from `waterui-internal` —
+# pinned to the `dev` heads that adopt the same framework revision.
+hydrolysis = { git = "https://github.com/water-rs/hydrolysis", rev = "71f18452543ea6501de73f003dafb6235f4ba3a7" }
+hydrolysis-m3 = { git = "https://github.com/water-rs/hydrolysis-m3", rev = "38499ef90b0a9e0d3b413fa78350325e88e21044" }
+waterui-image = { git = "https://github.com/water-rs/image", rev = "6b3077431d2edccfd6c7d0b4fb45d69bd1d5bc56" }
+waterui-svg = { git = "https://github.com/water-rs/svg", rev = "12553db2de92e66ff919f56c6dd98ba42f757a00" }
+
+# The third-party pins below are the framework's own `[patch.crates-io]` at the
+# pinned revision: the git-pinned `waterui-*` crates declare the registry
+# requirements, and a dependency's patch table does not apply downstream, so
+# this table has to carry the same forks or the graph builds upstream code the
+# framework deliberately avoids.
+xcb = { git = "https://github.com/rust-x-bindings/rust-xcb", rev = "ae3b2cd080e78173223038ccbebdc644eaf4a9ad" }
+vello = { git = "https://github.com/lexoliu/vello", rev = "5e5f538556be16527f67379b105af82f408b747d" }
+vello_hybrid = { git = "https://github.com/lexoliu/vello", rev = "d68d9e9825bcd1ffee762323881c13a2e7a3f639" }
+vello_common = { git = "https://github.com/lexoliu/vello", rev = "d68d9e9825bcd1ffee762323881c13a2e7a3f639" }
+vello_sparse_shaders = { git = "https://github.com/lexoliu/vello", rev = "d68d9e9825bcd1ffee762323881c13a2e7a3f639" }
+glifo = { git = "https://github.com/lexoliu/vello", rev = "d68d9e9825bcd1ffee762323881c13a2e7a3f639" }

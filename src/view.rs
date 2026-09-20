@@ -7,12 +7,12 @@ use nami::signal::IntoComputed;
 use nami::watcher::BoxWatcherGuard;
 use parley::FontContext;
 use peniko::{Brush, Color as PenikoColor, FontData};
+use suiteki::Str;
 use waterui_core::layout::Size;
 use waterui_core::{Computed, Environment, Signal, View};
 use waterui_graphics::color::{Color, ForegroundColor, ResolvedColor};
 use waterui_graphics::{Scene2D, SceneContent, SceneInvalidator, SceneView, invalidate_on_change};
 use waterui_layout::frame::Frame;
-use waterui_str::Str;
 use waterui_text::FontCollection;
 
 use crate::ast::{MathItem, MathStyle};
@@ -509,9 +509,9 @@ mod tests {
 
     use nami::Binding;
     use peniko::{Brush, Color as PenikoColor};
+    use suiteki::Str;
     use waterui_core::{Environment, View};
     use waterui_graphics::{SceneContent, SceneInvalidator};
-    use waterui_str::Str;
     use waterui_text::FontCollection;
 
     use super::{DEFAULT_MATH_FAMILY, Math, MathContent, accessibility_speech};
