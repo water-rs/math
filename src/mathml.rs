@@ -15,7 +15,7 @@ use alloc::vec::Vec;
 use quick_xml::Writer;
 use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
 
-use crate::ast::{MathItem, MathStyle};
+use crate::ast::{MathItem, MathStyle, MathVariant};
 
 /// What the writer is told when it refuses a byte it cannot refuse.
 ///
@@ -57,7 +57,7 @@ pub fn to_mathml(item: &MathItem, style: MathStyle) -> String {
         },
     ));
     write(&mut writer, Event::Start(root));
-    element(&mut writer, item);
+    element(&mut writer, item, None);
     write(&mut writer, Event::End(BytesEnd::new("math")));
 
     String::from_utf8(writer.into_inner()).expect("MathML is written from UTF-8 text")
@@ -67,58 +67,71 @@ fn write(writer: &mut Writer<Vec<u8>>, event: Event<'_>) {
     writer.write_event(event).expect(WRITE_CANNOT_FAIL);
 }
 
-fn leaf(writer: &mut Writer<Vec<u8>>, tag: &str, text: &str) {
-    write(writer, Event::Start(BytesStart::new(tag)));
+fn leaf(writer: &mut Writer<Vec<u8>>, tag: &str, text: &str, variant: Option<MathVariant>) {
+    let mut start = BytesStart::new(tag);
+    if let Some(variant) = variant {
+        start.push_attribute(("mathvariant", variant.mathml()));
+    }
+    write(writer, Event::Start(start));
     write(writer, Event::Text(BytesText::new(text)));
     write(writer, Event::End(BytesEnd::new(tag)));
 }
 
-fn wrap(writer: &mut Writer<Vec<u8>>, tag: &str, children: &[&MathItem]) {
+fn wrap(
+    writer: &mut Writer<Vec<u8>>,
+    tag: &str,
+    children: &[&MathItem],
+    variant: Option<MathVariant>,
+) {
     write(writer, Event::Start(BytesStart::new(tag)));
     for child in children {
-        element(writer, child);
+        element(writer, child, variant);
     }
     write(writer, Event::End(BytesEnd::new(tag)));
 }
 
-fn element(writer: &mut Writer<Vec<u8>>, item: &MathItem) {
+fn element(writer: &mut Writer<Vec<u8>>, item: &MathItem, variant: Option<MathVariant>) {
     match item {
-        MathItem::Ident(text) => leaf(writer, "mi", text.as_str()),
-        MathItem::Number(text) => leaf(writer, "mn", text.as_str()),
-        MathItem::Text(text) => leaf(writer, "mtext", text.as_str()),
-        MathItem::Operator(operator) => leaf(writer, "mo", operator.glyph.as_str()),
+        MathItem::Ident(text) => leaf(writer, "mi", text.as_str(), variant),
+        MathItem::Number(text) => leaf(writer, "mn", text.as_str(), variant),
+        MathItem::Text(text) => leaf(writer, "mtext", text.as_str(), variant),
+        MathItem::Operator(operator) => leaf(writer, "mo", operator.glyph.as_str(), variant),
         MathItem::Space(em) => {
             let mut space = BytesStart::new("mspace");
             let width = alloc::format!("{em}em");
             space.push_attribute(("width", width.as_str()));
             write(writer, Event::Empty(space));
         }
+        MathItem::Styled {
+            variant: styled,
+            body,
+        } => element(writer, body, Some(*styled)),
         MathItem::Row(items) => {
             let children: Vec<&MathItem> = items.iter().collect();
-            wrap(writer, "mrow", &children);
+            wrap(writer, "mrow", &children, variant);
         }
         MathItem::Fraction {
             numerator,
             denominator,
-        } => wrap(writer, "mfrac", &[numerator, denominator]),
+        } => wrap(writer, "mfrac", &[numerator, denominator], variant),
         MathItem::Radical { radicand, degree } => match degree {
-            None => wrap(writer, "msqrt", &[radicand]),
-            Some(degree) => wrap(writer, "mroot", &[radicand, degree]),
+            None => wrap(writer, "msqrt", &[radicand], variant),
+            Some(degree) => wrap(writer, "mroot", &[radicand, degree], variant),
         },
         MathItem::Scripts { base, sub, sup } => match (sub, sup) {
-            (Some(sub), Some(sup)) => wrap(writer, "msubsup", &[base, sub, sup]),
-            (Some(sub), None) => wrap(writer, "msub", &[base, sub]),
-            (None, Some(sup)) => wrap(writer, "msup", &[base, sup]),
-            (None, None) => element(writer, base),
+            (Some(sub), Some(sup)) => wrap(writer, "msubsup", &[base, sub, sup], variant),
+            (Some(sub), None) => wrap(writer, "msub", &[base, sub], variant),
+            (None, Some(sup)) => wrap(writer, "msup", &[base, sup], variant),
+            (None, None) => element(writer, base, variant),
         },
         MathItem::Fenced { open, body, close } => {
             write(writer, Event::Start(BytesStart::new("mrow")));
             if let Some(open) = open {
-                leaf(writer, "mo", open.glyph.as_str());
+                leaf(writer, "mo", open.glyph.as_str(), variant);
             }
-            element(writer, body);
+            element(writer, body, variant);
             if let Some(close) = close {
-                leaf(writer, "mo", close.glyph.as_str());
+                leaf(writer, "mo", close.glyph.as_str(), variant);
             }
             write(writer, Event::End(BytesEnd::new("mrow")));
         }

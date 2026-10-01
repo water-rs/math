@@ -18,7 +18,7 @@ use alloc::vec::Vec;
 
 use kurbo::{Affine, BezPath};
 
-use crate::ast::{MathClass, MathItem, MathStyle, Operator};
+use crate::ast::{MathClass, MathItem, MathStyle, MathVariant, Operator};
 use crate::font::{Glyph, MathConstants, MathFont, MathFontError};
 use crate::spacing::{SpacingError, SpacingTable};
 
@@ -176,7 +176,7 @@ impl<'a> Layouter<'a> {
         if !(size.is_finite() && size > 0.0) {
             return Err(LayoutError::Size { size });
         }
-        self.item(item, size, style)
+        self.item(item, size, style, None)
     }
 
     fn constants(&self, size: f32, style: MathStyle) -> MathConstants {
@@ -199,42 +199,51 @@ impl<'a> Layouter<'a> {
         item: &MathItem,
         size: f32,
         style: MathStyle,
+        variant: Option<MathVariant>,
     ) -> Result<MathLayout, LayoutError> {
         match item {
-            MathItem::Ident(text) => self.glyph_run(text, size, IdentStyle::Italic),
+            MathItem::Styled {
+                variant: styled,
+                body,
+            } => self.item(body, size, style, Some(*styled)),
+            MathItem::Ident(text) => self.glyph_run(text, size, IdentStyle::Italic, variant),
             MathItem::Number(text) | MathItem::Text(text) => {
-                self.glyph_run(text, size, IdentStyle::Upright)
+                self.glyph_run(text, size, IdentStyle::Upright, variant)
             }
             MathItem::Operator(operator) => {
-                self.glyph_run(&operator.glyph, size, IdentStyle::Upright)
+                self.glyph_run(&operator.glyph, size, IdentStyle::Upright, variant)
             }
             MathItem::Space(em) => Ok(MathLayout {
                 width: em * size,
                 ..MathLayout::default()
             }),
-            MathItem::Row(items) => self.row(items, size, style),
+            MathItem::Row(items) => self.row(items, size, style, variant),
             MathItem::Fraction {
                 numerator,
                 denominator,
-            } => self.fraction(numerator, denominator, size, style),
+            } => self.fraction(numerator, denominator, size, style, variant),
             MathItem::Radical { radicand, degree } => {
-                self.radical(radicand, degree.as_deref(), size, style)
+                self.radical(radicand, degree.as_deref(), size, style, variant)
             }
             MathItem::Scripts { base, sub, sup } => {
-                self.scripts(base, sub.as_deref(), sup.as_deref(), size, style)
+                self.scripts(base, sub.as_deref(), sup.as_deref(), size, style, variant)
             }
             MathItem::Fenced { open, body, close } => {
-                self.fenced(open.as_ref(), body, close.as_ref(), size, style)
+                self.fenced(open.as_ref(), body, close.as_ref(), size, style, variant)
             }
         }
     }
 
     /// A run of characters set as glyphs on one baseline.
+    ///
+    /// `variant` is the alphabet a `\mathXX` group selected; `ident_style` is
+    /// what the atom kind defaults to when no command overrides it.
     fn glyph_run(
         &self,
         text: &str,
         size: f32,
         ident_style: IdentStyle,
+        variant: Option<MathVariant>,
     ) -> Result<MathLayout, LayoutError> {
         let mut layout = MathLayout::default();
         let letters = text.chars().count();
@@ -243,10 +252,13 @@ impl<'a> Layouter<'a> {
             // A single-letter identifier is italic, which is the convention
             // for a variable; a multi-letter one (`sin`, `max`) stays upright,
             // because it is a name rather than a product of variables.
-            let drawn = match ident_style {
-                IdentStyle::Italic if letters == 1 => math_italic(character),
-                _ => character,
-            };
+            let drawn = variant.map_or_else(
+                || match ident_style {
+                    IdentStyle::Italic if letters == 1 => math_italic(character),
+                    _ => character,
+                },
+                |variant| math_variant(character, variant),
+            );
             let glyph = self.font.glyph(drawn).or_else(|error| {
                 // A face may lack the mathematical-alphanumeric codepoint while
                 // having the plain letter. Falling back to the plain letter is
@@ -280,6 +292,7 @@ impl<'a> Layouter<'a> {
         items: &[MathItem],
         size: f32,
         style: MathStyle,
+        variant: Option<MathVariant>,
     ) -> Result<MathLayout, LayoutError> {
         let mut layout = MathLayout::default();
         let mut previous: Option<MathClass> = None;
@@ -291,7 +304,7 @@ impl<'a> Layouter<'a> {
                     .between(left, item.class(), style)
                     .mul_add(size, layout.width);
             }
-            let child = self.item(item, size, style)?;
+            let child = self.item(item, size, style, variant)?;
             let x = layout.width;
             let advance = child.width;
             layout.absorb(child, x, 0.0);
@@ -309,13 +322,14 @@ impl<'a> Layouter<'a> {
         denominator: &MathItem,
         size: f32,
         style: MathStyle,
+        variant: Option<MathVariant>,
     ) -> Result<MathLayout, LayoutError> {
         let constants = self.constants(size, style);
         let inner_style = style.fraction();
         let inner_size = self.child_size(size, style, inner_style);
 
-        let num = self.item(numerator, inner_size, inner_style)?;
-        let den = self.item(denominator, inner_size, inner_style)?;
+        let num = self.item(numerator, inner_size, inner_style, variant)?;
+        let den = self.item(denominator, inner_size, inner_style, variant)?;
 
         let thickness = constants.fraction_rule_thickness;
         let axis_y = -constants.axis_height;
@@ -361,28 +375,29 @@ impl<'a> Layouter<'a> {
         sup: Option<&MathItem>,
         size: f32,
         style: MathStyle,
+        variant: Option<MathVariant>,
     ) -> Result<MathLayout, LayoutError> {
         let constants = self.constants(size, style);
         let script_style = style.script();
         let script_size = self.child_size(size, style, script_style);
 
-        let base_layout = self.item(base, size, style)?;
+        let base_layout = self.item(base, size, style, variant)?;
         let base_width = base_layout.width;
 
         // The correction that keeps a superscript clear of a slanted base's
         // overhang. It applies to the superscript only: the subscript sits
         // under the overhang, which is the point of the shape.
-        let italic = self.italic_correction(base, size);
+        let italic = self.italic_correction(base, size, variant);
 
         let mut layout = MathLayout::default();
         layout.absorb(base_layout, 0.0, 0.0);
         layout.width = base_width;
 
         let superscript = sup
-            .map(|item| self.item(item, script_size, script_style))
+            .map(|item| self.item(item, script_size, script_style, variant))
             .transpose()?;
         let subscript = sub
-            .map(|item| self.item(item, script_size, script_style))
+            .map(|item| self.item(item, script_size, script_style, variant))
             .transpose()?;
 
         let mut superscript_baseline = 0.0_f32;
@@ -429,7 +444,16 @@ impl<'a> Layouter<'a> {
     ///
     /// A composite base has no single correction to read, and its rightmost
     /// ink is already accounted for by its own layout.
-    fn italic_correction(&self, base: &MathItem, size: f32) -> f32 {
+    fn italic_correction(&self, base: &MathItem, size: f32, variant: Option<MathVariant>) -> f32 {
+        // A styled base carries the alphabet it is set in: the correction is
+        // read off that glyph, not the default italic one.
+        let (base, variant) = match base {
+            MathItem::Styled {
+                variant: styled,
+                body,
+            } => (body.as_ref(), Some(*styled)),
+            base => (base, variant),
+        };
         let MathItem::Ident(text) = base else {
             return 0.0;
         };
@@ -437,8 +461,9 @@ impl<'a> Layouter<'a> {
         let (Some(character), None) = (characters.next(), characters.next()) else {
             return 0.0;
         };
+        let drawn = variant.map_or_else(|| math_italic(character), |v| math_variant(character, v));
         self.font
-            .glyph(math_italic(character))
+            .glyph(drawn)
             .or_else(|_| self.font.glyph(character))
             .map_or(0.0, |glyph| self.font.italic_correction(glyph, size))
     }
@@ -450,9 +475,10 @@ impl<'a> Layouter<'a> {
         degree: Option<&MathItem>,
         size: f32,
         style: MathStyle,
+        variant: Option<MathVariant>,
     ) -> Result<MathLayout, LayoutError> {
         let constants = self.constants(size, style);
-        let inner = self.item(radicand, size, style)?;
+        let inner = self.item(radicand, size, style, variant)?;
 
         let thickness = constants.radical_rule_thickness;
         let gap = constants.radical_vertical_gap;
@@ -469,7 +495,7 @@ impl<'a> Layouter<'a> {
         if let Some(degree) = degree {
             let degree_style = style.script().script();
             let degree_size = self.child_size(size, style, degree_style);
-            let degree_layout = self.item(degree, degree_size, degree_style)?;
+            let degree_layout = self.item(degree, degree_size, degree_style, variant)?;
             let width = degree_layout.width;
             let raise = constants.radical_degree_bottom_raise_percent * sign.height;
             let baseline = bar_top + sign.height - raise;
@@ -509,27 +535,31 @@ impl<'a> Layouter<'a> {
         close: Option<&Operator>,
         size: f32,
         style: MathStyle,
+        variant: Option<MathVariant>,
     ) -> Result<MathLayout, LayoutError> {
         let constants = self.constants(size, style);
-        let inner = self.item(body, size, style)?;
+        let inner = self.item(body, size, style, variant)?;
         let axis = constants.axis_height;
 
         // A fence is centred on the axis and must reach whichever of the
         // content's edges is further from it, so the pair stays symmetric
         // about the axis rather than about the content's own centre.
         let reach = (inner.ascent - axis).max(inner.descent + axis).max(0.0);
-        let target = reach * 2.0;
+        let slot = FenceSlot {
+            target: reach * 2.0,
+            axis,
+        };
 
         let mut layout = MathLayout::default();
         let mut x = 0.0_f32;
 
         if let Some(open) = open {
-            x = self.place_fence(&mut layout, open, target, axis, x, size)?;
+            x = self.place_fence(&mut layout, open, slot, x, size, variant)?;
         }
         layout.absorb(inner, x, 0.0);
         x = layout.width.max(x);
         if let Some(close) = close {
-            x = self.place_fence(&mut layout, close, target, axis, x, size)?;
+            x = self.place_fence(&mut layout, close, slot, x, size, variant)?;
         }
 
         layout.width = x;
@@ -541,31 +571,31 @@ impl<'a> Layouter<'a> {
         &self,
         layout: &mut MathLayout,
         fence: &Operator,
-        target: f32,
-        axis: f32,
+        slot: FenceSlot,
         x: f32,
         size: f32,
+        variant: Option<MathVariant>,
     ) -> Result<f32, LayoutError> {
         let mut characters = fence.glyph.chars();
         let (Some(character), None) = (characters.next(), characters.next()) else {
             // A multi-character fence is not a stretchable glyph; set it as a
             // run so it is at least drawn correctly.
-            let run = self.glyph_run(&fence.glyph, size, IdentStyle::Upright)?;
+            let run = self.glyph_run(&fence.glyph, size, IdentStyle::Upright, variant)?;
             let width = run.width;
             layout.absorb(run, x, 0.0);
             return Ok(x + width);
         };
 
         if !fence.stretchy {
-            let run = self.glyph_run(&fence.glyph, size, IdentStyle::Upright)?;
+            let run = self.glyph_run(&fence.glyph, size, IdentStyle::Upright, variant)?;
             let width = run.width;
             layout.absorb(run, x, 0.0);
             return Ok(x + width);
         }
 
-        let grown = self.font.stretch_vertical(character, target, size)?;
+        let grown = self.font.stretch_vertical(character, slot.target, size)?;
         // Centre it on the axis.
-        let top = -(axis + grown.height / 2.0);
+        let top = -(slot.axis + grown.height / 2.0);
         let mut outline = grown.outline.clone();
         outline.apply_affine(Affine::translate((f64::from(x), f64::from(top))));
         layout.items.push(Placed::Outline(outline));
@@ -575,6 +605,16 @@ impl<'a> Layouter<'a> {
     }
 }
 
+/// What a fence must reach and where it sits vertically: the target height
+/// and the axis it is centred on.
+#[derive(Debug, Clone, Copy)]
+struct FenceSlot {
+    /// How tall the grown fence must be.
+    target: f32,
+    /// The math axis the fence centres on, above the baseline.
+    axis: f32,
+}
+
 /// Whether an identifier is set slanted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum IdentStyle {
@@ -582,6 +622,37 @@ enum IdentStyle {
     Italic,
     /// Numbers, operators, function names and literal text.
     Upright,
+}
+
+/// The codepoint a character takes in one of the `mathXX` alphabets.
+///
+/// Math fonts put each alphabet in its own slice of the Mathematical
+/// Alphanumeric Symbols block, so `\mathbf{v}` is U+1D42F rather than a bold
+/// face switch. Characters with no slot in the alphabet — punctuation,
+/// symbols — pass through to the ordinary codepoint.
+fn math_variant(character: char, variant: MathVariant) -> char {
+    match variant {
+        MathVariant::Normal => character,
+        MathVariant::Italic => math_italic(character),
+        MathVariant::Bold => match character {
+            'a'..='z' => offset(character, 'a', 0x1D41A),
+            'A'..='Z' => offset(character, 'A', 0x1D400),
+            '0'..='9' => offset(character, '0', 0x1D7CE),
+            other => other,
+        },
+        MathVariant::SansSerif => match character {
+            'a'..='z' => offset(character, 'a', 0x1D5BA),
+            'A'..='Z' => offset(character, 'A', 0x1D5A0),
+            '0'..='9' => offset(character, '0', 0x1D7E2),
+            other => other,
+        },
+        MathVariant::Monospace => match character {
+            'a'..='z' => offset(character, 'a', 0x1D68A),
+            'A'..='Z' => offset(character, 'A', 0x1D670),
+            '0'..='9' => offset(character, '0', 0x1D7F6),
+            other => other,
+        },
+    }
 }
 
 /// The mathematical-italic codepoint for a Latin letter.

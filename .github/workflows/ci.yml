@@ -33,21 +33,25 @@ jobs:
       # The test graph pulls `waterui-testing`, which builds the backend stack
       # (winit, wayland, gtk), and the gallery renders through wgpu — on a
       # headless runner that is llvmpipe/lavapipe, which is what
-      # mesa-vulkan-drivers and libvulkan1 provide. `fonts-stix` is the face the
-      # formula tests actually typeset against: layout reads the OpenType MATH
-      # table, and the default family, STIX Two Math, is the one that package
-      # ships — a runner without it has no math font and the typesetting tests
-      # fail for want of a face rather than for want of a fix.
+      # mesa-vulkan-drivers and libvulkan1 provide. The typesetting tests lay
+      # formulae out against the STIX Two Math face and read its OpenType MATH
+      # table, but Ubuntu's `fonts-stix` package only ships the older STIX 1.x
+      # family (STIXGeneral, STIXMath — no STIX Two Math) and the Windows
+      # runner image ships no math font at all, so the font is downloaded from
+      # the pinned upstream release and verified by hash instead; macOS ships
+      # the face already.
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y nasm libasound2-dev libva-dev libfontconfig1-dev libgbm-dev libxcb1-dev libglib2.0-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libgtk-4-dev libpipewire-0.3-dev libudev-dev libegl-dev libwayland-dev libxkbcommon-dev mesa-vulkan-drivers libvulkan1 fonts-stix fonts-noto-core
+          sudo apt-get install -y nasm libasound2-dev libva-dev libfontconfig1-dev libgbm-dev libxcb1-dev libglib2.0-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libgtk-4-dev libpipewire-0.3-dev libudev-dev libegl-dev libwayland-dev libxkbcommon-dev mesa-vulkan-drivers libvulkan1 fonts-noto-core
       # shaderloom compiles the WGSL waterui-graphics ships to DXIL on
       # Windows; the runner image does not ship dxc.
       - name: Install DirectX Shader Compiler
         if: runner.os == 'Windows'
         uses: ./.github/actions/install-dxc
+      - name: Install STIX Two Math
+        uses: ./.github/actions/install-stix-two-math
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@nextest
       - run: cargo nextest run --workspace --all-targets --all-features
@@ -66,7 +70,9 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y nasm libasound2-dev libva-dev libfontconfig1-dev libgbm-dev libxcb1-dev libglib2.0-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libgtk-4-dev libpipewire-0.3-dev libudev-dev libegl-dev libwayland-dev libxkbcommon-dev mesa-vulkan-drivers libvulkan1 fonts-stix fonts-noto-core
+          sudo apt-get install -y nasm libasound2-dev libva-dev libfontconfig1-dev libgbm-dev libxcb1-dev libglib2.0-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libgtk-4-dev libpipewire-0.3-dev libudev-dev libegl-dev libwayland-dev libxkbcommon-dev mesa-vulkan-drivers libvulkan1 fonts-noto-core
+      - name: Install STIX Two Math
+        uses: ./.github/actions/install-stix-two-math
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -102,7 +108,9 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y nasm libasound2-dev libva-dev libfontconfig1-dev libgbm-dev libxcb1-dev libglib2.0-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libgtk-4-dev libpipewire-0.3-dev libudev-dev libegl-dev libwayland-dev libxkbcommon-dev mesa-vulkan-drivers libvulkan1 fonts-stix fonts-noto-core
+          sudo apt-get install -y nasm libasound2-dev libva-dev libfontconfig1-dev libgbm-dev libxcb1-dev libglib2.0-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libgtk-4-dev libpipewire-0.3-dev libudev-dev libegl-dev libwayland-dev libxkbcommon-dev mesa-vulkan-drivers libvulkan1 fonts-noto-core
+      - name: Install STIX Two Math
+        uses: ./.github/actions/install-stix-two-math
       - uses: Swatinem/rust-cache@v2
       # Proof in the log that the floor is what compiled, so a later change to
       # the pin or the action cannot quietly make this a second stable run.
