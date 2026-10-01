@@ -86,7 +86,7 @@ name = "STIX Two Math"
 # sources as water-rs/waterui `feat/1246-cherenkov-cutover` at the pinned
 # revision (e2c5e356): every `waterui-*` crate this crate reaches, directly
 # or transitively, is the same monorepo commit, and the engine trio is the
-# Cherenkov revision the port targets (water-rs/cherenkov fd1e3666).
+# Cherenkov revision the port targets (water-rs/cherenkov 52236561).
 [patch.crates-io]
 
 # The waterui monorepo at the cutover revision.
@@ -139,12 +139,12 @@ hydrolysis = { git = "https://github.com/water-rs/hydrolysis", rev = "783208625b
 hydrolysis-m3 = { git = "https://github.com/water-rs/hydrolysis-m3", rev = "af90237154cd26080e89bf0ef0ab9828f0bb9a67" }
 
 # The Cherenkov engine workspace and its filtrate members.
-cherenkov = { git = "https://github.com/water-rs/cherenkov", rev = "fd1e36660719bcf2ffecda4649c6243812f536ad" }
-cherenkov-cpu = { git = "https://github.com/water-rs/cherenkov", rev = "fd1e36660719bcf2ffecda4649c6243812f536ad" }
-cherenkov-gpu = { git = "https://github.com/water-rs/cherenkov", rev = "fd1e36660719bcf2ffecda4649c6243812f536ad" }
-filtrate = { git = "https://github.com/water-rs/cherenkov", rev = "fd1e36660719bcf2ffecda4649c6243812f536ad" }
-filtrate-core = { git = "https://github.com/water-rs/cherenkov", rev = "fd1e36660719bcf2ffecda4649c6243812f536ad" }
-filtrate-derive = { git = "https://github.com/water-rs/cherenkov", rev = "fd1e36660719bcf2ffecda4649c6243812f536ad" }
+cherenkov = { git = "https://github.com/water-rs/cherenkov", rev = "522365616cff08d5d2e39bdae4690610593895e6" }
+cherenkov-cpu = { git = "https://github.com/water-rs/cherenkov", rev = "522365616cff08d5d2e39bdae4690610593895e6" }
+cherenkov-gpu = { git = "https://github.com/water-rs/cherenkov", rev = "522365616cff08d5d2e39bdae4690610593895e6" }
+filtrate = { git = "https://github.com/water-rs/cherenkov", rev = "522365616cff08d5d2e39bdae4690610593895e6" }
+filtrate-core = { git = "https://github.com/water-rs/cherenkov", rev = "522365616cff08d5d2e39bdae4690610593895e6" }
+filtrate-derive = { git = "https://github.com/water-rs/cherenkov", rev = "522365616cff08d5d2e39bdae4690610593895e6" }
 
 # WaterKit at the cutover revision, overriding the revision waterui's own
 # table pins (water-rs/waterkit `feat/efv-frames`).
@@ -180,3 +180,21 @@ shaderloom = { git = "https://github.com/water-rs/shaderloom", rev = "84c37c8314
 xcb = { git = "https://github.com/rust-x-bindings/rust-xcb", rev = "ae3b2cd080e78173223038ccbebdc644eaf4a9ad" }
 block = { git = "https://github.com/Dicklesworthstone/rust-block", rev = "b39ae859d1ee8e8cb5eef6a516471f1578d26b96" }
 vello = { git = "https://github.com/lexoliu/vello", rev = "76292095f408cf04b901023c2053f8d424652f06" }
+
+# Mirrored from water-rs/cherenkov's workspace [patch.crates-io] (cherenkov#229).
+# wgpu 30.0.1's Metal backend reads the address of the kCGColorSpace* globals
+# instead of their value and crashes in CGColorSpaceCreateWithName whenever a
+# surface negotiates Extended Display P3 or BT.2100 (gfx-rs/wgpu#10175, fixed on
+# trunk, not yet released for v30). The fork carries only that backport on the
+# v30.0.1 tag; drop these entries once wgpu-hal 30.0.2 ships it.
+naga = { git = "https://github.com/water-rs/wgpu", rev = "4b35d8bc968f6968b3cbae65b6e2e2ee132aa038" }
+naga-types = { git = "https://github.com/water-rs/wgpu", rev = "4b35d8bc968f6968b3cbae65b6e2e2ee132aa038" }
+wgpu = { git = "https://github.com/water-rs/wgpu", rev = "4b35d8bc968f6968b3cbae65b6e2e2ee132aa038" }
+wgpu-core = { git = "https://github.com/water-rs/wgpu", rev = "4b35d8bc968f6968b3cbae65b6e2e2ee132aa038" }
+wgpu-core-deps-apple = { git = "https://github.com/water-rs/wgpu", rev = "4b35d8bc968f6968b3cbae65b6e2e2ee132aa038" }
+wgpu-core-deps-emscripten = { git = "https://github.com/water-rs/wgpu", rev = "4b35d8bc968f6968b3cbae65b6e2e2ee132aa038" }
+wgpu-core-deps-wasm = { git = "https://github.com/water-rs/wgpu", rev = "4b35d8bc968f6968b3cbae65b6e2e2ee132aa038" }
+wgpu-core-deps-windows-linux-android = { git = "https://github.com/water-rs/wgpu", rev = "4b35d8bc968f6968b3cbae65b6e2e2ee132aa038" }
+wgpu-hal = { git = "https://github.com/water-rs/wgpu", rev = "4b35d8bc968f6968b3cbae65b6e2e2ee132aa038" }
+wgpu-naga-bridge = { git = "https://github.com/water-rs/wgpu", rev = "4b35d8bc968f6968b3cbae65b6e2e2ee132aa038" }
+wgpu-types = { git = "https://github.com/water-rs/wgpu", rev = "4b35d8bc968f6968b3cbae65b6e2e2ee132aa038" }
