@@ -514,7 +514,9 @@ mod tests {
     use waterui_graphics::{SceneContent, SceneInvalidator};
     use waterui_text::FontCollection;
 
-    use super::{DEFAULT_MATH_FAMILY, Math, MathContent, accessibility_speech};
+    use super::{
+        DEFAULT_MATH_FAMILY, Math, MathContent, accessibility_speech, prepare, resolve_font,
+    };
     use crate::ast::MathStyle;
     use crate::{latex, mathml, speech};
 
@@ -585,6 +587,25 @@ mod tests {
             accessibility_speech(&source, MathStyle::Text).as_deref(),
             Some(source.as_str()),
             "the node must carry the source when there is nothing to speak from"
+        );
+    }
+
+    /// `\mathrm{d}` is the differential the integral gallery formula needs:
+    /// the command must parse, lay out, and reach the markup upright — an
+    /// unsupported construct there leaves the whole formula unrenderable.
+    #[test]
+    fn a_mathrm_group_lays_out_the_integral() {
+        let font = FontCollection::system()
+            .use_fonts(|fonts| resolve_font(fonts, DEFAULT_MATH_FAMILY))
+            .expect("the math face resolves");
+        let prepared = prepare(r"\int_0^1 x\,\mathrm{d}x", &font, 48.0, MathStyle::Display)
+            .expect("an integral with an upright differential parses and lays out");
+
+        assert!(prepared.width > 0.0, "the laid-out formula has ink");
+        assert!(
+            prepared.mathml.contains("mathvariant=\"normal\""),
+            "the differential is upright in the markup: {}",
+            prepared.mathml
         );
     }
 
