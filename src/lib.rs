@@ -1,10 +1,10 @@
 //! Mathematical formula rendering for `WaterUI`.
 //!
 //! A formula is parsed into a semantic tree ([`ast`]), laid out against the
-//! chosen face's OpenType `MATH` table ([`font`], [`layout`]), and drawn
-//! through the engine-independent `Scene2D` contract ([`scene`]) — so it
-//! renders on whichever engine the backend supplies, including the CPU/GPU
-//! split engine that adapters without compute shaders fall to.
+//! chosen face's OpenType `MATH` table ([`font`], [`layout`]), and recorded
+//! through the engine-independent `Draw` contract ([`scene`]) — so it renders
+//! on whichever Cherenkov engine the backend supplies, including the CPU
+//! rasteriser that adapters without a GPU pipeline fall to.
 //!
 //! The semantic tree is kept rather than discarded after layout, because it is
 //! also the accessibility representation: a formula drawn as anonymous vector

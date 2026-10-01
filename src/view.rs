@@ -1,17 +1,21 @@
 //! The `Math` view.
 
 use alloc::string::String;
+use alloc::sync::Arc;
 use core::cell::RefCell;
 
+use cherenkov::{FontSource, Recorder, WorkingColor};
 use nami::signal::IntoComputed;
 use nami::watcher::BoxWatcherGuard;
 use parley::FontContext;
-use peniko::{Brush, Color as PenikoColor, FontData};
+use peniko::FontData;
 use suiteki::Str;
 use waterui_core::layout::Size;
 use waterui_core::{Computed, Environment, Signal, View};
-use waterui_graphics::color::{Color, ForegroundColor, ResolvedColor};
-use waterui_graphics::{Scene2D, SceneContent, SceneInvalidator, SceneView, invalidate_on_change};
+use waterui_graphics::color::{Color, ForegroundColor};
+use waterui_graphics::{
+    RecordingResources, SceneContent, SceneInvalidator, SceneView, invalidate_on_change,
+};
 use waterui_layout::frame::Frame;
 use waterui_text::FontCollection;
 
@@ -48,8 +52,8 @@ pub enum MathError {
 /// A rendered mathematical formula.
 ///
 /// The source is LaTeX. It is parsed into a semantic tree, laid out against the
-/// OpenType `MATH` table of the chosen family, and drawn through `Scene2D`, so
-/// it renders on every engine the backend may supply.
+/// OpenType `MATH` table of the chosen family, and recorded through the scene
+/// contract, so it renders on every engine the backend may supply.
 #[derive(Debug, Clone)]
 pub struct Math {
     source: Computed<Str>,
@@ -118,6 +122,18 @@ impl Math {
         self.color = Some(color.into());
         self
     }
+}
+
+/// The resolved face and its engine-facing source, shared by layout and
+/// drawing.
+///
+/// `data` is what the layout engine reads the `MATH` table out of; `source`
+/// is the same bytes as a [`FontSource`], registered with the engine in the
+/// recording that first draws the formula.
+#[derive(Debug, Clone)]
+struct CachedFont {
+    data: FontData,
+    source: FontSource,
 }
 
 /// A formula prepared for drawing: the tree, its `MathML`, and its metrics.
@@ -212,7 +228,7 @@ pub struct MathContent {
     style: MathStyle,
     font_size: f32,
     family: Str,
-    brush: Brush,
+    paint: Computed<WorkingColor>,
     cache: RefCell<MathCache>,
     invalidator: Option<SceneInvalidator>,
     /// Keeps the source watcher installed by [`SceneContent::set_invalidator`]
@@ -229,7 +245,7 @@ pub struct MathContent {
 /// thread that draws.
 #[derive(Default)]
 struct MathCache {
-    font: Option<FontData>,
+    font: Option<CachedFont>,
     /// The formula last measured and the box it occupies.
     measured: Option<(Str, Size)>,
 }
@@ -249,7 +265,7 @@ impl MathContent {
         font_size: f32,
         style: MathStyle,
         family: impl Into<Str>,
-        brush: Brush,
+        paint: Computed<WorkingColor>,
     ) -> Self {
         Self {
             fonts,
@@ -257,7 +273,7 @@ impl MathContent {
             style,
             font_size,
             family: family.into(),
-            brush,
+            paint,
             cache: RefCell::new(MathCache::default()),
             invalidator: None,
             source_guard: None,
@@ -269,14 +285,20 @@ impl MathContent {
     /// `None` means no installed family by that name carries a `MATH` table, and
     /// there is deliberately no substitute — a face without the table has no
     /// layout constants, so the formula has no geometry at all.
-    fn font(&self) -> Option<FontData> {
+    fn font(&self) -> Option<CachedFont> {
         let mut cache = self.cache.borrow_mut();
         if cache.font.is_none() {
             match self
                 .fonts
                 .use_fonts(|fonts| resolve_font(fonts, self.family.as_str()))
             {
-                Ok(font) => cache.font = Some(font),
+                Ok(data) => {
+                    cache.font = Some(CachedFont {
+                        source: FontSource::bytes(Arc::<[u8]>::from(data.data.data()))
+                            .with_index(data.index),
+                        data,
+                    });
+                }
                 Err(error) => {
                     tracing::error!(%error, "math formula has no usable font");
                     return None;
@@ -299,7 +321,13 @@ impl core::fmt::Debug for MathContent {
 }
 
 impl SceneContent for MathContent {
-    fn build_scene(&mut self, scene: &mut dyn Scene2D, width: f32, height: f32) -> bool {
+    fn build_scene(
+        &mut self,
+        recorder: &mut Recorder,
+        resources: &mut RecordingResources<'_>,
+        width: f32,
+        height: f32,
+    ) -> bool {
         if !(width.is_finite() && height.is_finite()) || width <= 0.0 || height <= 0.0 {
             return false;
         }
@@ -310,8 +338,20 @@ impl SceneContent for MathContent {
             return false;
         };
 
-        let source = self.source.get();
-        let prepared = match prepare(source.as_str(), &font, self.font_size, self.style) {
+        // The font is registered on whichever engine owns this recording and
+        // named in it: a registration is engine-scoped, so the handle is asked
+        // for every call rather than held across engines.
+        let registered = match resources.font(font.source.clone()) {
+            Ok(registered) => registered,
+            Err(error) => {
+                tracing::error!(%error, "math font could not be registered with the engine");
+                return false;
+            }
+        };
+        let font_id = resources.name(&registered);
+
+        let source = self.source.snapshot();
+        let prepared = match prepare(source.as_str(), &font.data, self.font_size, self.style) {
             Ok(prepared) => prepared,
             Err(error) => {
                 tracing::error!(%error, formula = %source, "could not render math formula");
@@ -319,7 +359,7 @@ impl SceneContent for MathContent {
             }
         };
 
-        let math_font = match MathFont::new(font.data.data(), font.index) {
+        let math_font = match MathFont::new(font.data.data.data(), font.data.index) {
             Ok(math_font) => math_font,
             Err(error) => {
                 tracing::error!(%error, "math font became unusable");
@@ -333,7 +373,14 @@ impl SceneContent for MathContent {
             return false;
         };
 
-        scene::draw(&layout, scene, &font, &self.brush, 0.0, prepared.ascent);
+        scene::draw(
+            &layout,
+            recorder,
+            font_id,
+            &self.paint,
+            0.0,
+            prepared.ascent,
+        );
         false
     }
 
@@ -345,7 +392,7 @@ impl SceneContent for MathContent {
     /// when the source does not parse, or when the formula is empty — none of
     /// which is a size.
     fn intrinsic_size(&self) -> Option<Size> {
-        let source = self.source.get();
+        let source = self.source.snapshot();
         let cached = self.cache.borrow().measured.clone();
         if let Some((measured, size)) = cached
             && measured == source
@@ -354,7 +401,7 @@ impl SceneContent for MathContent {
         }
 
         let font = self.font()?;
-        let prepared = match prepare(source.as_str(), &font, self.font_size, self.style) {
+        let prepared = match prepare(source.as_str(), &font.data, self.font_size, self.style) {
             Ok(prepared) => prepared,
             Err(error) => {
                 tracing::error!(%error, formula = %source, "could not measure math formula");
@@ -386,7 +433,7 @@ impl SceneContent for MathContent {
     /// so a formula bound to state stays current without its subtree being
     /// rebuilt.
     fn accessibility_label(&self) -> Option<String> {
-        accessibility_speech(&self.source.get(), self.style)
+        accessibility_speech(&self.source.snapshot(), self.style)
     }
 
     fn set_invalidator(&mut self, invalidator: Option<SceneInvalidator>) {
@@ -410,19 +457,15 @@ impl View for Math {
     /// collection here is the per-view font enumeration this component was
     /// changed to stop doing.
     fn body(self, env: &Environment) -> impl View {
-        let color = self
+        let paint = self
             .color
             .clone()
             .map(|color| color.resolve(env))
             .or_else(|| {
-                env.query::<ForegroundColor, Computed<ResolvedColor>>()
+                env.query::<ForegroundColor, Computed<WorkingColor>>()
                     .cloned()
-            });
-
-        let brush = color.map_or_else(
-            || Brush::Solid(PenikoColor::BLACK),
-            |signal| Brush::Solid(to_peniko(&signal.get())),
-        );
+            })
+            .unwrap_or_else(|| Computed::constant(WorkingColor::BLACK));
 
         let content = MathContent::new(
             FontCollection::from_env(env),
@@ -430,7 +473,7 @@ impl View for Math {
             self.font_size,
             self.style,
             self.family,
-            brush,
+            paint,
         );
 
         // The formula's accessibility node is the leaf's own: `MathContent`
@@ -483,34 +526,15 @@ fn accessibility_speech(source: &Str, style: MathStyle) -> Option<String> {
     }
 }
 
-fn to_peniko(color: &ResolvedColor) -> PenikoColor {
-    let srgb = color.to_srgb();
-    let channel = |value: f32| {
-        #[expect(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            reason = "clamped to 0..=255 before the cast"
-        )]
-        let byte = (value * 255.0).clamp(0.0, 255.0).round() as u8;
-        byte
-    };
-    PenikoColor::from_rgba8(
-        channel(srgb.red),
-        channel(srgb.green),
-        channel(srgb.blue),
-        channel(color.opacity),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use alloc::rc::Rc;
     use core::cell::Cell;
 
+    use cherenkov::WorkingColor;
     use nami::Binding;
-    use peniko::{Brush, Color as PenikoColor};
     use suiteki::Str;
-    use waterui_core::{Environment, View};
+    use waterui_core::{Computed, Environment, View};
     use waterui_graphics::{SceneContent, SceneInvalidator};
     use waterui_text::FontCollection;
 
@@ -535,7 +559,7 @@ mod tests {
             18.0,
             MathStyle::Text,
             DEFAULT_MATH_FAMILY,
-            Brush::Solid(PenikoColor::BLACK),
+            Computed::constant(WorkingColor::BLACK),
         )
     }
 
