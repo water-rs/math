@@ -42,12 +42,25 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y nasm libasound2-dev libva-dev libfontconfig1-dev libgbm-dev libxcb1-dev libglib2.0-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libgtk-4-dev libpipewire-0.3-dev libudev-dev libegl-dev libwayland-dev libxkbcommon-dev mesa-vulkan-drivers libvulkan1 fonts-stix fonts-noto-core
+          sudo apt-get install -y nasm libasound2-dev libva-dev libfontconfig1-dev libgbm-dev libxcb1-dev libglib2.0-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libgtk-4-dev libpipewire-0.3-dev libudev-dev libegl-dev libwayland-dev libxkbcommon-dev mesa-vulkan-drivers libvulkan1 fonts-stix fonts-noto-core spirv-tools
       # shaderloom compiles the WGSL waterui-graphics ships to DXIL on
       # Windows; the runner image does not ship dxc.
       - name: Install DirectX Shader Compiler
         if: runner.os == 'Windows'
         uses: ./.github/actions/install-dxc
+      # cherenkov-gpu's build script optimizes its precompiled SPIR-V with spirv-opt.
+      - name: Install SPIRV-Tools
+        if: runner.os == 'Windows'
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          install: mingw-w64-ucrt-x86_64-spirv-tools
+      - name: Put SPIRV-Tools on the PATH
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Add-Content -Path $env:GITHUB_PATH -Value "${{ steps.msys2.outputs.msys2-location }}\ucrt64\bin"
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@nextest
       - run: cargo nextest run --workspace --all-targets --all-features
@@ -66,7 +79,7 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y nasm libasound2-dev libva-dev libfontconfig1-dev libgbm-dev libxcb1-dev libglib2.0-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libgtk-4-dev libpipewire-0.3-dev libudev-dev libegl-dev libwayland-dev libxkbcommon-dev mesa-vulkan-drivers libvulkan1 fonts-stix fonts-noto-core
+          sudo apt-get install -y nasm libasound2-dev libva-dev libfontconfig1-dev libgbm-dev libxcb1-dev libglib2.0-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libgtk-4-dev libpipewire-0.3-dev libudev-dev libegl-dev libwayland-dev libxkbcommon-dev mesa-vulkan-drivers libvulkan1 fonts-stix fonts-noto-core spirv-tools
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
