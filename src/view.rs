@@ -436,6 +436,17 @@ impl SceneContent for MathContent {
         accessibility_speech(&self.source.snapshot(), self.style)
     }
 
+    // The face in `cache` is font data resolved from the application's
+    // collection, not an engine handle — `build_scene` already re-registers
+    // it per call. The only engine-bound state is the invalidator the host
+    // installed and the source watch armed on it; the replacement engine's
+    // `set_invalidator` re-arms both. The source, style and measurements
+    // are semantic and stay.
+    fn rebuild_for_engine(&mut self) {
+        self.invalidator = None;
+        self.source_guard = None;
+    }
+
     fn set_invalidator(&mut self, invalidator: Option<SceneInvalidator>) {
         // A formula is typeset from the source read in `build_scene`, so a
         // surface that is never told the source changed keeps presenting the
