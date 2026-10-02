@@ -42,6 +42,10 @@ impl SceneContent for OnWhite {
         self.formula.build_scene(recorder, resources, width, height)
     }
 
+    fn rebuild_for_engine(&mut self) {
+        self.formula.rebuild_for_engine();
+    }
+
     fn set_invalidator(&mut self, invalidator: Option<SceneInvalidator>) {
         self.formula.set_invalidator(invalidator);
     }
