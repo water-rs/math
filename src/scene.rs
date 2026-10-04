@@ -1,14 +1,17 @@
-//! Recording a laid-out formula through Cherenkov's `Draw` contract.
+//! Recording a laid-out formula through the `Draw` contract.
 //!
-//! Nothing here knows which engine is underneath. That is the point: the same
-//! commands render on the GPU engine a live surface draws through and on the
-//! CPU rasteriser an offscreen render goes through.
+//! Nothing here knows which render target is underneath. That is the point:
+//! the same commands render on whichever target the host records them for —
+//! the GPU engine a live surface draws through, the CPU rasteriser an
+//! offscreen render goes through, or a target that is not Cherenkov's at all.
 
 use alloc::vec::Vec;
 
-use cherenkov::kurbo::{Affine, Rect};
-use cherenkov::{Draw, Fixed, FontId, Glyph, GlyphRun, GlyphStyle, Recorder, WorkingColor};
 use nami::Computed;
+use waterui_graphics::draw::kurbo::{Affine, Rect};
+use waterui_graphics::draw::{
+    Draw, Fixed, FontId, Glyph, GlyphRun, GlyphStyle, Recorder, WorkingColor,
+};
 
 use crate::layout::{MathLayout, Placed};
 

@@ -11,11 +11,12 @@
 
 use std::path::{Path, PathBuf};
 
-use cherenkov::kurbo::Rect;
-use cherenkov::{Draw, Fixed, Recorder, WorkingColor};
 use nami::Computed;
+use waterui_graphics::draw::kurbo::Rect;
+use waterui_graphics::draw::{Draw, Fixed, Recorder};
 use waterui_graphics::{
     OffscreenRenderer, OffscreenSize, RecordingResources, SceneContent, SceneInvalidator,
+    WorkingColor,
 };
 use waterui_math::ast::MathStyle;
 use waterui_math::view::{DEFAULT_MATH_FAMILY, MathContent};
