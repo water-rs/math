@@ -4,7 +4,6 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use core::cell::RefCell;
 
-use cherenkov::{FontSource, Recorder, WorkingColor};
 use nami::signal::IntoComputed;
 use nami::watcher::BoxWatcherGuard;
 use parley::FontContext;
@@ -13,8 +12,10 @@ use suiteki::Str;
 use waterui_core::layout::Size;
 use waterui_core::{Computed, Environment, Signal, View};
 use waterui_graphics::color::{Color, ForegroundColor};
+use waterui_graphics::draw::Recorder;
 use waterui_graphics::{
-    RecordingResources, SceneContent, SceneInvalidator, SceneView, invalidate_on_change,
+    FontSource, RecordingResources, SceneContent, SceneInvalidator, SceneView, WorkingColor,
+    invalidate_on_change,
 };
 use waterui_layout::frame::Frame;
 use waterui_text::FontCollection;
@@ -542,11 +543,10 @@ mod tests {
     use alloc::rc::Rc;
     use core::cell::Cell;
 
-    use cherenkov::WorkingColor;
     use nami::Binding;
     use suiteki::Str;
     use waterui_core::{Computed, Environment, View};
-    use waterui_graphics::{SceneContent, SceneInvalidator};
+    use waterui_graphics::{SceneContent, SceneInvalidator, WorkingColor};
     use waterui_text::FontCollection;
 
     use super::{
