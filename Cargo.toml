@@ -36,7 +36,7 @@ waterui-core = "0.5.0"
 waterui-graphics = { version = "0.5.0", default-features = false }
 waterui-layout = "0.5.0"
 suiteki = { version = "0.1", features = ["nami"] }
-nami = "=0.11.1"
+nami = "0.12"
 # The math family is looked up in the application's shared font collection,
 # which the host installs and this crate only reads: `parley` is here for the
 # `FontContext` that collection hands out, not to discover fonts.
