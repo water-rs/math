@@ -6,8 +6,7 @@ use core::cell::RefCell;
 
 use nami::signal::IntoComputed;
 use nami::watcher::BoxWatcherGuard;
-use parley::FontContext;
-use peniko::FontData;
+use peniko::{Blob, FontData};
 use suiteki::Str;
 use waterui_core::layout::Size;
 use waterui_core::{Computed, Environment, Signal, View};
@@ -195,20 +194,13 @@ pub fn prepare(
 /// `MATH` table. There is deliberately no substitute: a face without the table
 /// has no layout constants, so drawing with it would not be the same formula
 /// set differently, it would be a formula with no geometry.
-pub fn resolve_font(fonts: &mut FontContext, family: &str) -> Result<FontData, MathError> {
+pub fn resolve_font(fonts: &FontCollection, family: &str) -> Result<FontData, MathError> {
     let no_font = || MathError::NoFont {
         family: String::from(family),
     };
 
-    let info = fonts
-        .collection
-        .family_by_name(family)
-        .ok_or_else(no_font)?;
-    for font in info.fonts() {
-        let Some(blob) = fonts.source_cache.get(font.source()) else {
-            continue;
-        };
-        let data = FontData::new(blob, font.index());
+    for face in fonts.faces(family) {
+        let data = FontData::new(Blob::new(Arc::new(face.bytes())), face.index());
         if MathFont::new(data.data.data(), data.index).is_ok() {
             return Ok(data);
         }
@@ -289,10 +281,7 @@ impl MathContent {
     fn font(&self) -> Option<CachedFont> {
         let mut cache = self.cache.borrow_mut();
         if cache.font.is_none() {
-            match self
-                .fonts
-                .use_fonts(|fonts| resolve_font(fonts, self.family.as_str()))
-            {
+            match resolve_font(&self.fonts, self.family.as_str()) {
                 Ok(data) => {
                     cache.font = Some(CachedFont {
                         source: FontSource::bytes(Arc::<[u8]>::from(data.data.data()))
@@ -630,8 +619,7 @@ mod tests {
     /// unsupported construct there leaves the whole formula unrenderable.
     #[test]
     fn a_mathrm_group_lays_out_the_integral() {
-        let font = FontCollection::system()
-            .use_fonts(|fonts| resolve_font(fonts, DEFAULT_MATH_FAMILY))
+        let font = resolve_font(&FontCollection::system(), DEFAULT_MATH_FAMILY)
             .expect("the math face resolves");
         let prepared = prepare(r"\int_0^1 x\,\mathrm{d}x", &font, 48.0, MathStyle::Display)
             .expect("an integral with an upright differential parses and lays out");

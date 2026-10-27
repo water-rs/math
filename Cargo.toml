@@ -37,10 +37,6 @@ waterui-graphics = { version = "0.5.0", default-features = false }
 waterui-layout = "0.5.0"
 suiteki = { version = "0.1", features = ["nami"] }
 nami = "0.13"
-# The math family is looked up in the application's shared font collection,
-# which the host installs and this crate only reads: `parley` is here for the
-# `FontContext` that collection hands out, not to discover fonts.
-parley = { version = "0.11", default-features = false, features = ["std"] }
 # `system-fonts` is what lets a host with no font stack of its own — the native
 # Apple, Android and GTK backends — install a collection at all. A formula is
 # typeset from real faces, so a build carrying this component must be able to
@@ -197,21 +193,34 @@ suiteki = { git = "https://github.com/water-rs/suiteki", branch = "dev" }
 xcb = { git = "https://github.com/rust-x-bindings/rust-xcb", rev = "ae3b2cd080e78173223038ccbebdc644eaf4a9ad" }
 block = { git = "https://github.com/Dicklesworthstone/rust-block", rev = "b39ae859d1ee8e8cb5eef6a516471f1578d26b96" }
 
+# The framework's `dev` builds `PassthroughShaderEntryPoint` with the
+# threadgroup-memory field the wgpu branch above adds; crates.io 0.2.1 does
+# not know it. Mirrored from waterui's patch table; drop it with the wgpu
+# entries.
+shaderloom = { git = "https://github.com/water-rs/shaderloom", branch = "dev" }
+
 # Mirrored from the in-tree cherenkov workspace patch (water-rs/cherenkov#229,
 # carried into water-rs/waterui).
 # wgpu 30.0.1's Metal backend reads the address of the kCGColorSpace* globals
 # instead of their value and crashes in CGColorSpaceCreateWithName whenever a
 # surface negotiates Extended Display P3 or BT.2100 (gfx-rs/wgpu#10175, fixed on
-# trunk, not yet released for v30). The fork carries only that backport on the
-# v30.0.1 tag; drop these entries once wgpu-hal 30.0.2 ships it.
-naga = { git = "https://github.com/water-rs/wgpu", rev = "11e85956a78886d1a96d586f255ea9b0661da2cd" }
-naga-types = { git = "https://github.com/water-rs/wgpu", rev = "11e85956a78886d1a96d586f255ea9b0661da2cd" }
-wgpu = { git = "https://github.com/water-rs/wgpu", rev = "11e85956a78886d1a96d586f255ea9b0661da2cd" }
-wgpu-core = { git = "https://github.com/water-rs/wgpu", rev = "11e85956a78886d1a96d586f255ea9b0661da2cd" }
-wgpu-core-deps-apple = { git = "https://github.com/water-rs/wgpu", rev = "11e85956a78886d1a96d586f255ea9b0661da2cd" }
-wgpu-core-deps-emscripten = { git = "https://github.com/water-rs/wgpu", rev = "11e85956a78886d1a96d586f255ea9b0661da2cd" }
-wgpu-core-deps-wasm = { git = "https://github.com/water-rs/wgpu", rev = "11e85956a78886d1a96d586f255ea9b0661da2cd" }
-wgpu-core-deps-windows-linux-android = { git = "https://github.com/water-rs/wgpu", rev = "11e85956a78886d1a96d586f255ea9b0661da2cd" }
-wgpu-hal = { git = "https://github.com/water-rs/wgpu", rev = "11e85956a78886d1a96d586f255ea9b0661da2cd" }
-wgpu-naga-bridge = { git = "https://github.com/water-rs/wgpu", rev = "11e85956a78886d1a96d586f255ea9b0661da2cd" }
-wgpu-types = { git = "https://github.com/water-rs/wgpu", rev = "11e85956a78886d1a96d586f255ea9b0661da2cd" }
+# trunk, not yet released for v30). `[patch]` in a dependency's manifest does
+# not apply downstream, so without these entries this graph resolves the
+# crashing crates.io build while cherenkov resolves the fork. The branch also
+# moves wgpu-hal to glow 0.18, as trunk has. Drop them once a wgpu-hal release
+# ships the color-space fix, passthrough threadgroup-memory metadata and glow
+# 0.18.
+naga = { git = "https://github.com/water-rs/wgpu", branch = "fix/metal-shared-memory-v30" }
+naga-types = { git = "https://github.com/water-rs/wgpu", branch = "fix/metal-shared-memory-v30" }
+wgpu = { git = "https://github.com/water-rs/wgpu", branch = "fix/metal-shared-memory-v30" }
+wgpu-core = { git = "https://github.com/water-rs/wgpu", branch = "fix/metal-shared-memory-v30" }
+wgpu-core-deps-apple = { git = "https://github.com/water-rs/wgpu", branch = "fix/metal-shared-memory-v30" }
+wgpu-core-deps-emscripten = { git = "https://github.com/water-rs/wgpu", branch = "fix/metal-shared-memory-v30" }
+wgpu-core-deps-windows-linux-android = { git = "https://github.com/water-rs/wgpu", branch = "fix/metal-shared-memory-v30" }
+wgpu-hal = { git = "https://github.com/water-rs/wgpu", branch = "fix/metal-shared-memory-v30" }
+wgpu-naga-bridge = { git = "https://github.com/water-rs/wgpu", branch = "fix/metal-shared-memory-v30" }
+wgpu-types = { git = "https://github.com/water-rs/wgpu", branch = "fix/metal-shared-memory-v30" }
+# wgpu-external-frame hands wgpu-hal's GLES textures to its own glow context,
+# so it must link the glow 0.18 the branch above carries; its crates.io 0.4.0
+# links 0.17 (water-rs/wgpu-external-frame#43). Drop it with the wgpu entries.
+wgpu-external-frame = { git = "https://github.com/water-rs/wgpu-external-frame", branch = "dev" }
