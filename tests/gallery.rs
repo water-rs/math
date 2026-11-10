@@ -2,55 +2,23 @@
 //! both offscreen engines.
 //!
 //! `OffscreenRenderer::new()` is the GPU pipeline a live surface uses and
-//! `OffscreenRenderer::cpu()` is the CPU rasteriser; drawing the same content
-//! through both is also what exercises the engine-scoped font registration —
-//! an id asked for on one engine means nothing on the other.
+//! `OffscreenRenderer::cpu()` is the CPU rasteriser; drawing the same
+//! `Drawing` through both is also what exercises the engine-scoped font
+//! registration — a registration made on one engine means nothing on the other,
+//! and each renderer makes its own.
 //!
-//! The PNGs land in `WATERUI_MATH_GALLERY_DIR` when it is set and in the
-//! target directory otherwise, for review after the suite runs.
+//! The PNGs land in `WATERUI_MATH_GALLERY_DIR` when it is set and in the test
+//! target's temporary directory otherwise, for review after the suite runs.
 
 use std::path::{Path, PathBuf};
 
-use nami::Computed;
-use waterui_graphics::draw::kurbo::Rect;
-use waterui_graphics::draw::{Draw, Fixed, Recorder};
-use waterui_graphics::{
-    OffscreenRenderer, OffscreenSize, RecordingResources, SceneContent, SceneInvalidator,
-    WorkingColor,
-};
+use waterui_core::layout::{Rect, Size};
+use waterui_graphics::canvas::Drawing;
+use waterui_graphics::color::WorkingColor;
+use waterui_graphics::{OffscreenRenderer, OffscreenSize};
 use waterui_math::ast::MathStyle;
-use waterui_math::view::{DEFAULT_MATH_FAMILY, MathContent};
+use waterui_math::view::{DEFAULT_MATH_FAMILY, Typeset};
 use waterui_text::FontCollection;
-
-/// Formulas are drawn on white: the gallery is reviewed as images, and a
-/// transparent ground lets a hole in a glyph read as the absence it is.
-struct OnWhite {
-    formula: MathContent,
-}
-
-impl SceneContent for OnWhite {
-    fn build_scene(
-        &mut self,
-        recorder: &mut Recorder,
-        resources: &mut RecordingResources<'_>,
-        width: f32,
-        height: f32,
-    ) -> bool {
-        recorder.fill(
-            Fixed(Rect::new(0.0, 0.0, f64::from(width), f64::from(height))),
-            Fixed(WorkingColor::WHITE),
-        );
-        self.formula.build_scene(recorder, resources, width, height)
-    }
-
-    fn rebuild_for_engine(&mut self) {
-        self.formula.rebuild_for_engine();
-    }
-
-    fn set_invalidator(&mut self, invalidator: Option<SceneInvalidator>) {
-        self.formula.set_invalidator(invalidator);
-    }
-}
 
 const GALLERY: &[(&str, &str)] = &[
     ("quadratic", r"x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}"),
@@ -80,7 +48,7 @@ const GALLERY: &[(&str, &str)] = &[
 
 fn output_directory() -> PathBuf {
     let directory = std::env::var("WATERUI_MATH_GALLERY_DIR").map_or_else(
-        |_| std::env::temp_dir().join("waterui-math-gallery"),
+        |_| PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("waterui-math-gallery"),
         PathBuf::from,
     );
     std::fs::create_dir_all(&directory)
@@ -88,33 +56,40 @@ fn output_directory() -> PathBuf {
     directory
 }
 
+/// A formula on white, in a box of `size`: the gallery is reviewed as images,
+/// and a transparent ground lets a hole in a glyph read as the absence it is.
+fn on_white(typeset: &Typeset, size: Size) -> Drawing {
+    Drawing::record(size, |cx| {
+        cx.fill(Rect::from_size(size), WorkingColor::WHITE);
+        typeset.record(cx, WorkingColor::BLACK);
+    })
+}
+
 #[test]
-fn renders_the_formula_gallery_on_both_scene_engines() {
+fn renders_the_formula_gallery_on_both_engines() {
     let directory = output_directory();
     let gpu =
         OffscreenRenderer::new().expect("the formula gallery requires a GPU engine on this host");
     let cpu = OffscreenRenderer::cpu().expect("the formula gallery requires the CPU rasteriser");
-    let size = OffscreenSize::try_from_pixels(560, 200).expect("the gallery size is nonzero");
+    let pixels = OffscreenSize::try_from_pixels(560, 200).expect("the gallery size is nonzero");
+    let size = Size::new(560.0, 200.0);
 
     let fonts = FontCollection::system();
     for &(name, source) in GALLERY {
-        // One content instance renders on both engines: the font registration
-        // the gallery exercises is engine-scoped, so this is also the
-        // cross-engine path a host that moves a view between pipelines would
-        // hit.
-        let mut content = OnWhite {
-            formula: MathContent::new(
-                fonts.clone(),
-                suiteki::Str::from(source),
-                48.0,
-                MathStyle::Display,
-                DEFAULT_MATH_FAMILY,
-                Computed::constant(WorkingColor::BLACK),
-            ),
-        };
+        let typeset = Typeset::new(
+            &fonts,
+            DEFAULT_MATH_FAMILY,
+            source,
+            48.0,
+            MathStyle::Display,
+        )
+        .unwrap_or_else(|error| panic!("could not typeset {source}: {error}"));
+        // One drawing renders on both engines, each registering the math face
+        // for itself.
+        let drawing = on_white(&typeset, size);
 
         let image = gpu
-            .render(&mut content, size, 1.0)
+            .render_drawing(&drawing, pixels)
             .unwrap_or_else(|error| panic!("could not render {source} on the GPU engine: {error}"));
         let path = directory.join(format!("{name}_gpu.png"));
         image
@@ -122,9 +97,11 @@ fn renders_the_formula_gallery_on_both_scene_engines() {
             .unwrap_or_else(|error| panic!("could not write {}: {error}", path.display()));
         println!("saved {}", path.display());
 
-        let image = cpu.render(&mut content, size, 1.0).unwrap_or_else(|error| {
-            panic!("could not render {source} on the CPU rasteriser: {error}")
-        });
+        let image = cpu
+            .render_drawing(&drawing, pixels)
+            .unwrap_or_else(|error| {
+                panic!("could not render {source} on the CPU rasteriser: {error}")
+            });
         let path = directory.join(format!("{name}_cpu.png"));
         image
             .save_png(&path)
