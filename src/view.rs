@@ -577,7 +577,10 @@ mod tests {
             narrow.size().expect("a letter has a box"),
             wide.size().expect("a sum has a box"),
         );
-        assert!(wide.width > narrow.width, "{wide:?} is wider than {narrow:?}");
+        assert!(
+            wide.width > narrow.width,
+            "{wide:?} is wider than {narrow:?}"
+        );
     }
 
     /// A formula whose source does not parse draws nothing and has no size,

@@ -76,8 +76,14 @@ fn renders_the_formula_gallery_on_both_engines() {
 
     let fonts = FontCollection::system();
     for &(name, source) in GALLERY {
-        let typeset = Typeset::new(&fonts, DEFAULT_MATH_FAMILY, source, 48.0, MathStyle::Display)
-            .unwrap_or_else(|error| panic!("could not typeset {source}: {error}"));
+        let typeset = Typeset::new(
+            &fonts,
+            DEFAULT_MATH_FAMILY,
+            source,
+            48.0,
+            MathStyle::Display,
+        )
+        .unwrap_or_else(|error| panic!("could not typeset {source}: {error}"));
         // One drawing renders on both engines, each registering the math face
         // for itself.
         let drawing = on_white(&typeset, size);
@@ -91,9 +97,11 @@ fn renders_the_formula_gallery_on_both_engines() {
             .unwrap_or_else(|error| panic!("could not write {}: {error}", path.display()));
         println!("saved {}", path.display());
 
-        let image = cpu.render_drawing(&drawing, pixels).unwrap_or_else(|error| {
-            panic!("could not render {source} on the CPU rasteriser: {error}")
-        });
+        let image = cpu
+            .render_drawing(&drawing, pixels)
+            .unwrap_or_else(|error| {
+                panic!("could not render {source} on the CPU rasteriser: {error}")
+            });
         let path = directory.join(format!("{name}_cpu.png"));
         image
             .save_png(&path)
