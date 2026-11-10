@@ -88,14 +88,9 @@ name = "STIX Two Math"
 # and the test graph name.
 waterui-math = { path = "." }
 
-# The waterui monorepo on `feat/2633-nami-0.13`, which moves the framework
-# to nami 0.13 / nami-core 0.5 (water-rs/waterui#2633), with the exact commit
-# recorded in `Cargo.lock`. It carries the render-target-neutral recording
-# contract (water-rs/waterui#1435): `SceneContent::build_scene` records into
-# `cherenkov_record::Recorder`, re-exported as `waterui_graphics::draw`,
-# and `SceneResources` registers through the target's `SceneBackend`/
-# `ShaderBackend` registry, returning `Registered` handles that name the
-# plain ids (`FontId`, `ImageId`, `ShaderId`) a recording draws with.
+# The waterui monorepo on `dev`, with the exact commit recorded in
+# `Cargo.lock`. It carries the Canvas API (`waterui_graphics::canvas`,
+# water-rs/waterui#4054), which the crate draws through.
 waterui = { git = "https://github.com/water-rs/waterui", branch = "dev" }
 waterui-assets = { git = "https://github.com/water-rs/waterui", branch = "dev" }
 waterui-assets-core = { git = "https://github.com/water-rs/waterui", branch = "dev" }

@@ -1,6 +1,6 @@
 //! Publishing the semantic tree as `MathML`.
 //!
-//! A formula drawn through [`crate::scene`] reaches the screen as filled paths
+//! A formula drawn through [`crate::draw`] reaches the screen as filled paths
 //! and glyph runs. To a screen reader that is a picture with no content, which
 //! is why the tree is kept after layout rather than consumed by it: `MathML` is
 //! what assistive technology actually reads, and this is where it comes from.

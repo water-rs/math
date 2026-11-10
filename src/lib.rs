@@ -2,9 +2,9 @@
 //!
 //! A formula is parsed into a semantic tree ([`ast`]), laid out against the
 //! chosen face's OpenType `MATH` table ([`font`], [`layout`]), and recorded
-//! through the engine-independent `Draw` contract ([`scene`]) — so it renders
-//! on whichever Cherenkov engine the backend supplies, including the CPU
-//! rasteriser that adapters without a GPU pipeline fall to.
+//! on a `Canvas` as glyph runs, outlines and rules ([`draw`]) — so whichever
+//! renderer draws the screen around the formula draws it, and a change of the
+//! source re-typesets that one region of the canvas.
 //!
 //! The semantic tree is kept rather than discarded after layout, because it is
 //! also the accessibility representation: a formula drawn as anonymous vector
@@ -69,11 +69,11 @@
 extern crate alloc;
 
 pub mod ast;
+pub mod draw;
 pub mod font;
 pub mod latex;
 pub mod layout;
 pub mod mathml;
-pub mod scene;
 pub mod spacing;
 pub mod speech;
 pub mod view;

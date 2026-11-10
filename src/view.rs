@@ -1,28 +1,25 @@
 //! The `Math` view.
 
+use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::sync::Arc;
 use core::cell::RefCell;
 
+use nami::SignalExt as _;
 use nami::signal::IntoComputed;
-use nami::watcher::BoxWatcherGuard;
 use peniko::{Blob, FontData};
 use suiteki::Str;
 use waterui_core::layout::Size;
-use waterui_core::{Computed, Environment, Signal, View};
-use waterui_graphics::color::{Color, ForegroundColor};
-use waterui_graphics::draw::Recorder;
-use waterui_graphics::{
-    FontSource, RecordingResources, SceneContent, SceneInvalidator, SceneView, WorkingColor,
-    invalidate_on_change,
-};
+use waterui_core::{Computed, Environment, View};
+use waterui_graphics::canvas::{Canvas, Cx, DrawingCx, Font};
+use waterui_graphics::color::{Color, ForegroundColor, WorkingColor};
 use waterui_layout::frame::Frame;
 use waterui_text::FontCollection;
 
 use crate::ast::{MathItem, MathStyle};
 use crate::font::MathFont;
-use crate::layout::Layouter;
-use crate::{latex, mathml, scene, speech};
+use crate::layout::{Layouter, MathLayout};
+use crate::{draw, latex, mathml, speech};
 
 /// The math family used when the caller names none.
 ///
@@ -52,8 +49,10 @@ pub enum MathError {
 /// A rendered mathematical formula.
 ///
 /// The source is LaTeX. It is parsed into a semantic tree, laid out against the
-/// OpenType `MATH` table of the chosen family, and recorded through the scene
-/// contract, so it renders on every engine the backend may supply.
+/// OpenType `MATH` table of the chosen family, and drawn on a `Canvas`, so it
+/// renders on whichever renderer draws the screen around it. A change of the
+/// source typesets the formula again and re-records that one region of the
+/// canvas.
 #[derive(Debug, Clone)]
 pub struct Math {
     source: Computed<Str>,
@@ -124,25 +123,15 @@ impl Math {
     }
 }
 
-/// The resolved face and its engine-facing source, shared by layout and
-/// drawing.
-///
-/// `data` is what the layout engine reads the `MATH` table out of; `source`
-/// is the same bytes as a [`FontSource`], registered with the engine in the
-/// recording that first draws the formula.
-#[derive(Debug, Clone)]
-struct CachedFont {
-    data: FontData,
-    source: FontSource,
-}
-
-/// A formula prepared for drawing: the tree, its `MathML`, and its metrics.
+/// A formula prepared for drawing: the tree, its `MathML`, and its layout.
 #[derive(Debug, Clone)]
 pub struct PreparedMath {
     /// The semantic tree, kept because it is the accessibility representation.
     pub item: MathItem,
     /// The tree as `MathML`, for the accessibility payload.
     pub mathml: String,
+    /// What to draw, positioned relative to the baseline origin.
+    pub layout: MathLayout,
     /// Total advance width in pixels.
     pub width: f32,
     /// Height above the baseline.
@@ -183,6 +172,7 @@ pub fn prepare(
         width: layout.width,
         ascent: layout.ascent,
         descent: layout.descent,
+        layout,
     })
 }
 
@@ -208,68 +198,132 @@ pub fn resolve_font(fonts: &FontCollection, family: &str) -> Result<FontData, Ma
     Err(no_font())
 }
 
-/// Scene content that draws one formula.
+/// A formula typeset against a math face, ready to draw.
 ///
-/// [`Math`] wraps this, and a backend that wants to draw a formula into a scene
-/// it already owns can use it directly rather than going through a view.
-pub struct MathContent {
-    /// The application's font collection, installed by the host and shared with
-    /// every other component that shapes or typesets text. The math family is
-    /// looked up in it; this content never builds one of its own.
-    fonts: FontCollection,
-    source: Computed<Str>,
-    style: MathStyle,
-    font_size: f32,
-    family: Str,
-    paint: Computed<WorkingColor>,
-    cache: RefCell<MathCache>,
-    invalidator: Option<SceneInvalidator>,
-    /// Keeps the source watcher installed by [`SceneContent::set_invalidator`]
-    /// alive. Dropping it stops asking for redraws, which is what clearing the
-    /// invalidator means.
-    source_guard: Option<BoxWatcherGuard>,
+/// [`Math`] typesets its source into one of these whenever the source changes
+/// and draws it on its canvas. Code that wants a formula outside a view —
+/// recording it into a `Drawing`, for instance — typesets one itself and calls
+/// [`Typeset::record`].
+#[derive(Debug, Clone)]
+pub struct Typeset {
+    prepared: PreparedMath,
+    font: Font,
 }
 
-/// The resolved face and the last measurement, shared by drawing and layout.
-///
-/// Measuring a formula *is* laying it out, and a container probes a child
-/// several times in one pass, so the answer is kept. A plain `RefCell` is the
-/// right cell for it: layout is single-threaded by contract and runs on the same
-/// thread that draws.
-#[derive(Default)]
-struct MathCache {
-    font: Option<CachedFont>,
-    /// The formula last measured and the box it occupies.
-    measured: Option<(Str, Size)>,
-}
-
-impl MathContent {
-    /// Scene content drawing `source` at `font_size` in `style`.
+impl Typeset {
+    /// Typesets `source` at `font_size` in `style`, set in `family` as the
+    /// application's `fonts` provide it.
     ///
-    /// The family must carry an OpenType `MATH` table;
-    /// [`DEFAULT_MATH_FAMILY`] is the one this crate asks for by default. It is
-    /// looked up in `fonts`, the collection the host installed for the whole
-    /// application — read it out of the environment with
-    /// [`FontCollection::from_env`] rather than building one here.
-    #[must_use]
+    /// # Errors
+    ///
+    /// Returns [`MathError`] when no installed face of `family` carries a
+    /// `MATH` table, or the source does not parse or cannot be laid out.
     pub fn new(
-        fonts: FontCollection,
-        source: impl IntoComputed<Str>,
+        fonts: &FontCollection,
+        family: &str,
+        source: &str,
         font_size: f32,
         style: MathStyle,
-        family: impl Into<Str>,
-        paint: Computed<WorkingColor>,
-    ) -> Self {
+    ) -> Result<Self, MathError> {
+        let data = resolve_font(fonts, family)?;
+        let font = Font::from_bytes(Arc::<[u8]>::from(data.data.data()), data.index);
+        Self::with_font(&data, font, source, font_size, style)
+    }
+
+    fn with_font(
+        data: &FontData,
+        font: Font,
+        source: &str,
+        font_size: f32,
+        style: MathStyle,
+    ) -> Result<Self, MathError> {
+        Ok(Self {
+            prepared: prepare(source, data, font_size, style)?,
+            font,
+        })
+    }
+
+    /// The typeset formula: its tree, `MathML` and layout.
+    #[must_use]
+    pub const fn prepared(&self) -> &PreparedMath {
+        &self.prepared
+    }
+
+    /// The box the formula occupies.
+    ///
+    /// A formula is text: it is exactly as wide as its advance and as tall as
+    /// its ascent plus descent, and a container that names neither axis should
+    /// get that rather than nothing. `None` when the formula is empty, which is
+    /// not a size.
+    #[must_use]
+    pub fn size(&self) -> Option<Size> {
+        let size = Size::new(self.prepared.width, self.prepared.height());
+        (size.width.is_finite() && size.height.is_finite() && size.width > 0.0 && size.height > 0.0)
+            .then_some(size)
+    }
+
+    /// Draws the formula on `cx`, its top-left corner at the canvas origin,
+    /// painted with `ink`. The ink is live: a theme change repaints the formula
+    /// without recording it again.
+    pub fn draw(&self, cx: &mut Cx, ink: &Computed<WorkingColor>) {
+        draw::draw(
+            &self.prepared.layout,
+            cx,
+            &self.font,
+            ink,
+            0.0,
+            self.prepared.ascent,
+        );
+    }
+
+    /// Records the formula into a `Drawing` being recorded, its top-left corner
+    /// at the origin, painted with `ink`.
+    pub fn record(&self, cx: &mut DrawingCx, ink: WorkingColor) {
+        draw::draw(
+            &self.prepared.layout,
+            cx,
+            &self.font,
+            &ink,
+            0.0,
+            self.prepared.ascent,
+        );
+    }
+}
+
+/// How a view typesets its source: the family, size and style it is set in,
+/// and the face and last formula it has resolved.
+///
+/// Measuring a formula *is* laying it out, and the view reads the typeset
+/// formula for its canvas, its intrinsic size and nothing else, so the last one
+/// is kept for as long as the source is unchanged.
+struct Setter {
+    /// The application's font collection, installed by the host and shared with
+    /// every other component that shapes or typesets text. The math family is
+    /// looked up in it; this never builds one of its own.
+    fonts: FontCollection,
+    family: Str,
+    font_size: f32,
+    style: MathStyle,
+    cache: RefCell<SetterCache>,
+}
+
+#[derive(Default)]
+struct SetterCache {
+    /// The resolved face, which is one canvas font for the view's whole life:
+    /// a font the canvas has not seen is a registration with the renderer.
+    font: Option<(FontData, Font)>,
+    /// The formula last typeset, or `None` when it could not be.
+    typeset: Option<(Str, Option<Rc<Typeset>>)>,
+}
+
+impl Setter {
+    fn new(fonts: FontCollection, family: Str, font_size: f32, style: MathStyle) -> Self {
         Self {
             fonts,
-            source: source.into_computed(),
-            style,
+            family,
             font_size,
-            family: family.into(),
-            paint,
-            cache: RefCell::new(MathCache::default()),
-            invalidator: None,
-            source_guard: None,
+            style,
+            cache: RefCell::default(),
         }
     }
 
@@ -278,16 +332,13 @@ impl MathContent {
     /// `None` means no installed family by that name carries a `MATH` table, and
     /// there is deliberately no substitute — a face without the table has no
     /// layout constants, so the formula has no geometry at all.
-    fn font(&self) -> Option<CachedFont> {
+    fn font(&self) -> Option<(FontData, Font)> {
         let mut cache = self.cache.borrow_mut();
         if cache.font.is_none() {
             match resolve_font(&self.fonts, self.family.as_str()) {
                 Ok(data) => {
-                    cache.font = Some(CachedFont {
-                        source: FontSource::bytes(Arc::<[u8]>::from(data.data.data()))
-                            .with_index(data.index),
-                        data,
-                    });
+                    let font = Font::from_bytes(Arc::<[u8]>::from(data.data.data()), data.index);
+                    cache.font = Some((data, font));
                 }
                 Err(error) => {
                     tracing::error!(%error, "math formula has no usable font");
@@ -297,156 +348,26 @@ impl MathContent {
         }
         cache.font.clone()
     }
-}
 
-impl core::fmt::Debug for MathContent {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        formatter
-            .debug_struct("MathContent")
-            .field("family", &self.family)
-            .field("font_size", &self.font_size)
-            .field("style", &self.style)
-            .finish_non_exhaustive()
-    }
-}
-
-impl SceneContent for MathContent {
-    fn build_scene(
-        &mut self,
-        recorder: &mut Recorder,
-        resources: &mut RecordingResources<'_>,
-        width: f32,
-        height: f32,
-    ) -> bool {
-        if !(width.is_finite() && height.is_finite()) || width <= 0.0 || height <= 0.0 {
-            return false;
-        }
-
-        // The face is resolved out of the application's collection once and
-        // kept for the life of this surface.
-        let Some(font) = self.font() else {
-            return false;
-        };
-
-        // The font is registered on whichever engine owns this recording and
-        // named in it: a registration is engine-scoped, so the handle is asked
-        // for every call rather than held across engines.
-        let registered = match resources.font(font.source.clone()) {
-            Ok(registered) => registered,
-            Err(error) => {
-                tracing::error!(%error, "math font could not be registered with the engine");
-                return false;
-            }
-        };
-        let font_id = resources.name(&registered);
-
-        let source = self.source.snapshot();
-        let prepared = match prepare(source.as_str(), &font.data, self.font_size, self.style) {
-            Ok(prepared) => prepared,
-            Err(error) => {
-                tracing::error!(%error, formula = %source, "could not render math formula");
-                return false;
-            }
-        };
-
-        let math_font = match MathFont::new(font.data.data.data(), font.data.index) {
-            Ok(math_font) => math_font,
-            Err(error) => {
-                tracing::error!(%error, "math font became unusable");
-                return false;
-            }
-        };
-        let Ok(layouter) = Layouter::new(&math_font) else {
-            return false;
-        };
-        let Ok(layout) = layouter.layout(&prepared.item, self.font_size, self.style) else {
-            return false;
-        };
-
-        scene::draw(
-            &layout,
-            recorder,
-            font_id,
-            &self.paint,
-            0.0,
-            prepared.ascent,
-        );
-        false
-    }
-
-    /// The typeset box the formula occupies, at this content's em size.
-    ///
-    /// A formula is text: it is exactly as wide as its advance and as tall as its
-    /// ascent plus descent, and a container that names neither axis should get
-    /// that rather than nothing. `None` when the family carries no `MATH` table,
-    /// when the source does not parse, or when the formula is empty — none of
-    /// which is a size.
-    fn intrinsic_size(&self) -> Option<Size> {
-        let source = self.source.snapshot();
-        let cached = self.cache.borrow().measured.clone();
-        if let Some((measured, size)) = cached
-            && measured == source
+    /// `source` typeset, or `None` when the face is missing or the source does
+    /// not parse or lay out, which is reported.
+    fn typeset(&self, source: &Str) -> Option<Rc<Typeset>> {
+        if let Some((typeset, result)) = &self.cache.borrow().typeset
+            && typeset == source
         {
-            return Some(size);
+            return result.clone();
         }
-
-        let font = self.font()?;
-        let prepared = match prepare(source.as_str(), &font.data, self.font_size, self.style) {
-            Ok(prepared) => prepared,
-            Err(error) => {
-                tracing::error!(%error, formula = %source, "could not measure math formula");
-                return None;
+        let result = self.font().and_then(|(data, font)| {
+            match Typeset::with_font(&data, font, source.as_str(), self.font_size, self.style) {
+                Ok(typeset) => Some(Rc::new(typeset)),
+                Err(error) => {
+                    tracing::error!(%error, formula = %source, "could not typeset math formula");
+                    None
+                }
             }
-        };
-        let size = Size::new(prepared.width, prepared.height());
-        if !(size.width.is_finite() && size.height.is_finite())
-            || size.width <= 0.0
-            || size.height <= 0.0
-        {
-            return None;
-        }
-        self.cache.borrow_mut().measured = Some((source, size));
-        Some(size)
-    }
-
-    /// The formula spoken as a sentence.
-    ///
-    /// A formula reaches the screen as filled paths and glyph runs — to
-    /// assistive technology that is a picture with no content — so this node is
-    /// the only place the formula can be said at all, and what a node is named
-    /// gets read out. `MathML` is the payload a platform's math accessibility
-    /// API takes; read aloud it is noise, so the name is the sentence
-    /// [`crate::speech`] produces from that markup instead.
-    ///
-    /// It is read fresh on every emission, and the source watcher installed by
-    /// [`Self::set_invalidator`] is what schedules the frame that re-emits it,
-    /// so a formula bound to state stays current without its subtree being
-    /// rebuilt.
-    fn accessibility_label(&self) -> Option<String> {
-        accessibility_speech(&self.source.snapshot(), self.style)
-    }
-
-    // The face in `cache` is font data resolved from the application's
-    // collection, not an engine handle — `build_scene` already re-registers
-    // it per call. The only engine-bound state is the invalidator the host
-    // installed and the source watch armed on it; the replacement engine's
-    // `set_invalidator` re-arms both. The source, style and measurements
-    // are semantic and stay.
-    fn rebuild_for_engine(&mut self) {
-        self.invalidator = None;
-        self.source_guard = None;
-    }
-
-    fn set_invalidator(&mut self, invalidator: Option<SceneInvalidator>) {
-        // A formula is typeset from the source read in `build_scene`, so a
-        // surface that is never told the source changed keeps presenting the
-        // box it typeset last. Watching the signal schedules the frame that
-        // re-typesets it; this is scene invalidation, not a subtree rebuild,
-        // so the content instance and its resolved font survive the change.
-        self.source_guard = invalidator
-            .as_ref()
-            .map(|invalidator| invalidate_on_change(invalidator, &self.source));
-        self.invalidator = invalidator;
+        });
+        self.cache.borrow_mut().typeset = Some((source.clone(), result.clone()));
+        result
     }
 }
 
@@ -458,7 +379,7 @@ impl View for Math {
     /// collection here is the per-view font enumeration this component was
     /// changed to stop doing.
     fn body(self, env: &Environment) -> impl View {
-        let paint = self
+        let ink = self
             .color
             .clone()
             .map(|color| color.resolve(env))
@@ -468,22 +389,42 @@ impl View for Math {
             })
             .unwrap_or_else(|| Computed::constant(WorkingColor::BLACK));
 
-        let content = MathContent::new(
+        let setter = Rc::new(Setter::new(
             FontCollection::from_env(env),
-            self.source,
+            self.family,
             self.font_size,
             self.style,
-            self.family,
-            paint,
-        );
+        ));
+        let typeset: Computed<Option<Rc<Typeset>>> = self
+            .source
+            .map(move |source| setter.typeset(&source))
+            .computed();
+        let size = typeset
+            .map(|typeset| typeset.and_then(|typeset| typeset.size()))
+            .computed();
+        let style = self.style;
+        let speech = self
+            .source
+            .map(move |source| accessibility_speech(&source, style).map(Str::from))
+            .computed();
 
-        // The formula's accessibility node is the leaf's own: `MathContent`
-        // answers `SceneContent::accessibility_label` with the markup, which
-        // the backend offers as the node's name when the application named
-        // nothing itself. It cannot be attached here as `.a11y_label(…)`
-        // metadata — that is nearest-consumer and would beat the application's
-        // own label instead of yielding to it.
-        Frame::new(SceneView::new(content))
+        // The canvas offers the spoken formula as its name, which an
+        // application's own `.a11y_label(…)` overrides: attached here as
+        // metadata it would be nearest-consumer and beat the application's
+        // label instead of yielding to it.
+        Frame::new(
+            Canvas::new(move |cx| {
+                // The closure runs once; a change of the source re-records
+                // this one region, typeset again.
+                cx.scope(typeset, move |cx, typeset: &Option<Rc<Typeset>>| {
+                    if let Some(typeset) = typeset {
+                        typeset.draw(cx, &ink);
+                    }
+                });
+            })
+            .intrinsic_size(size)
+            .offered_label(speech),
+        )
     }
 }
 
@@ -496,8 +437,7 @@ impl View for Math {
 /// that silently did not render.
 ///
 /// A formula that parsed but that `MathCAT` cannot speak leaves the node
-/// unnamed, which is what [`SceneContent::accessibility_label`] means by
-/// `None`: content that cannot say anything true about itself. There is
+/// unnamed: content that cannot say anything true about itself. There is
 /// deliberately nothing generic to say in its place — "math formula" tells a
 /// listener nothing and would hide the failure — so the error is logged with
 /// the formula that produced it.
@@ -529,39 +469,15 @@ fn accessibility_speech(source: &Str, style: MathStyle) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use alloc::rc::Rc;
-    use core::cell::Cell;
-
-    use nami::Binding;
     use suiteki::Str;
-    use waterui_core::{Computed, Environment, View};
-    use waterui_graphics::{SceneContent, SceneInvalidator, WorkingColor};
+    use waterui_core::{Environment, View};
     use waterui_text::FontCollection;
 
     use super::{
-        DEFAULT_MATH_FAMILY, Math, MathContent, accessibility_speech, prepare, resolve_font,
+        DEFAULT_MATH_FAMILY, Math, Setter, Typeset, accessibility_speech, prepare, resolve_font,
     };
     use crate::ast::MathStyle;
     use crate::{latex, mathml, speech};
-
-    /// A [`SceneInvalidator`] that counts the frames it was asked for.
-    fn counting_invalidator() -> (SceneInvalidator, Rc<Cell<usize>>) {
-        let redraws = Rc::new(Cell::new(0_usize));
-        let counted = Rc::clone(&redraws);
-        let invalidator: SceneInvalidator = Rc::new(move || counted.set(counted.get() + 1));
-        (invalidator, redraws)
-    }
-
-    fn content(source: &Binding<Str>) -> MathContent {
-        MathContent::new(
-            FontCollection::system(),
-            source.clone(),
-            18.0,
-            MathStyle::Text,
-            DEFAULT_MATH_FAMILY,
-            Computed::constant(WorkingColor::BLACK),
-        )
-    }
 
     /// A formula built where no host installed a collection says so, instead of
     /// enumerating the system's fonts on its own — which is what it used to do,
@@ -632,39 +548,60 @@ mod tests {
         );
     }
 
+    /// The box a formula measures follows the source: typesetting it again is
+    /// what changes the canvas' intrinsic size, and an unchanged source is not
+    /// typeset twice.
     #[test]
-    fn changing_the_source_asks_for_a_frame() {
-        let source = Binding::container(Str::from_static("x"));
-        let mut content = content(&source);
-        let (invalidator, redraws) = counting_invalidator();
-
-        content.set_invalidator(Some(invalidator));
-        let installed = redraws.get();
-
-        source.set(Str::from_static("y"));
-
-        assert!(
-            redraws.get() > installed,
-            "a formula bound to state must schedule a frame when its source changes"
+    fn the_typeset_follows_the_source() {
+        let setter = Setter::new(
+            FontCollection::system(),
+            Str::from_static(DEFAULT_MATH_FAMILY),
+            18.0,
+            MathStyle::Text,
         );
+        let narrow = setter
+            .typeset(&Str::from_static("x"))
+            .expect("a letter typesets");
+        let again = setter
+            .typeset(&Str::from_static("x"))
+            .expect("the same source is kept");
+        assert!(
+            alloc::rc::Rc::ptr_eq(&narrow, &again),
+            "an unchanged source is not typeset again"
+        );
+
+        let wide = setter
+            .typeset(&Str::from_static(r"x + y + z"))
+            .expect("a sum typesets");
+        let (narrow, wide) = (
+            narrow.size().expect("a letter has a box"),
+            wide.size().expect("a sum has a box"),
+        );
+        assert!(wide.width > narrow.width, "{wide:?} is wider than {narrow:?}");
     }
 
+    /// A formula whose source does not parse draws nothing and has no size,
+    /// without taking the view down.
     #[test]
-    fn clearing_the_invalidator_stops_the_frames() {
-        let source = Binding::container(Str::from_static("x"));
-        let mut content = content(&source);
-        let (invalidator, redraws) = counting_invalidator();
-
-        content.set_invalidator(Some(invalidator));
-        content.set_invalidator(None);
-        let cleared = redraws.get();
-
-        source.set(Str::from_static("y"));
-
-        assert_eq!(
-            redraws.get(),
-            cleared,
-            "a surface that took its invalidator back must stop being asked for frames"
+    fn a_source_that_does_not_parse_has_no_typeset() {
+        let setter = Setter::new(
+            FontCollection::system(),
+            Str::from_static(DEFAULT_MATH_FAMILY),
+            18.0,
+            MathStyle::Text,
         );
+        assert!(
+            setter
+                .typeset(&Str::from_static(r"\begin{matrix}a\end{matrix}"))
+                .is_none()
+        );
+        let result = Typeset::new(
+            &FontCollection::system(),
+            DEFAULT_MATH_FAMILY,
+            r"\begin{matrix}a\end{matrix}",
+            18.0,
+            MathStyle::Text,
+        );
+        assert!(result.is_err());
     }
 }
