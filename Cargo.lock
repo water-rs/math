@@ -6694,7 +6694,7 @@ source = "git+https://github.com/Dicklesworthstone/rust-block?rev=b39ae859d1ee8e
 [[patch.unused]]
 name = "hydrolysis-m3"
 version = "0.3.1"
-source = "git+https://github.com/water-rs/hydrolysis-m3?branch=dev#7c9ed56b1ac49dd9e1317313f62ddfc12596e644"
+source = "git+https://github.com/water-rs/hydrolysis-m3?branch=main#bc70ebf7f19c44272430b6b9822c45a4a188a390"
 
 [[patch.unused]]
 name = "waterkit-audio"
@@ -6784,7 +6784,7 @@ source = "git+https://github.com/water-rs/waterkit?branch=main#c94c528423e7e4b97
 [[patch.unused]]
 name = "waterui-barcode"
 version = "0.3.0"
-source = "git+https://github.com/water-rs/barcode?branch=dev#e344e97a3ea793305399ec38647078c22a014721"
+source = "git+https://github.com/water-rs/barcode?branch=main#43c3018566525c3894038b0fc04f17c77c11d70c"
 
 [[patch.unused]]
 name = "waterui-canvas"
@@ -6794,7 +6794,7 @@ source = "git+https://github.com/water-rs/canvas?branch=dev#29cdbc3084f7d36b654e
 [[patch.unused]]
 name = "waterui-chart"
 version = "0.3.0"
-source = "git+https://github.com/water-rs/chart?branch=dev#157c2bb6d0f619ebe5c2f0ce89cf73f3260cb876"
+source = "git+https://github.com/water-rs/chart?branch=main#eb21d2101128d7d4e6a0e6ebbd85323e70bfbbde"
 
 [[patch.unused]]
 name = "waterui-icons-codegen"
@@ -6814,7 +6814,7 @@ source = "git+https://github.com/water-rs/image?rev=a36e16c555bd78ade9e28fad947a
 [[patch.unused]]
 name = "waterui-map-gpu"
 version = "0.3.0"
-source = "git+https://github.com/water-rs/map-gpu?branch=dev#5c0882a5d757ec8e8be79c169d3bad5e874d0046"
+source = "git+https://github.com/water-rs/map-gpu?branch=main#243bbd7ab2cb7598e05123decd62b8f176d6a4dc"
 
 [[patch.unused]]
 name = "waterui-mcp"
@@ -6844,7 +6844,7 @@ source = "git+https://github.com/water-rs/waterui?branch=dev#14f2bb6f85509cee4a1
 [[patch.unused]]
 name = "waterui-video-gpu"
 version = "0.4.0"
-source = "git+https://github.com/water-rs/video-gpu?branch=dev#5485c6710b3a6f929bb8e294f801f974200eca93"
+source = "git+https://github.com/water-rs/video-gpu?branch=main#d33791afe1201e598e584c9db1a4142d15f04585"
 
 [[patch.unused]]
 name = "xcb"
