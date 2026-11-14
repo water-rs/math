@@ -1,159 +1,127 @@
-//! Renders a gallery of formulas for visual review.
+//! The gallery: every construct the crate lays out, rendered to PNG through
+//! both offscreen engines.
 //!
-//! These are not pass/fail assertions about appearance — the two engines
-//! rasterize differently, and no threshold on pixels can tell you whether a
-//! fraction bar is in the right place. The PNGs are written out to be *looked
-//! at*, by a person or by an agent with vision.
+//! `OffscreenRenderer::new()` is the GPU pipeline a live surface uses and
+//! `OffscreenRenderer::cpu()` is the CPU rasteriser; drawing the same
+//! `Drawing` through both is also what exercises the engine-scoped font
+//! registration — a registration made on one engine means nothing on the other,
+//! and each renderer makes its own.
 //!
-//! Rendering every formula through both scene engines is the part that is
-//! asserted: a formula that draws on the classic compute pipeline but not on
-//! the CPU/GPU split engine would be broken on the iOS Simulator and on every
-//! adapter without indirect execution, and that is exactly the failure this
-//! crate's `Scene2D` output exists to avoid.
-//!
-//! ```text
-//! WATERUI_MATH_GALLERY_DIR=/tmp/waterui_math_gallery \
-//!   cargo test -p waterui-math --test gallery -- --nocapture
-//! ```
+//! The PNGs land in `WATERUI_MATH_GALLERY_DIR` when it is set and in the test
+//! target's temporary directory otherwise, for review after the suite runs.
 
 use std::path::{Path, PathBuf};
 
-use kurbo::{Affine, Rect, Shape};
-use peniko::{Brush, Color, Fill};
-use waterui_graphics::shared_context::SceneEngine;
-use waterui_graphics::{
-    GpuRuntime, OffscreenRenderConfig, OffscreenSize, Scene2D, SceneContent, SceneInvalidator,
-    SceneView,
-};
+use waterui_core::layout::{Rect, Size};
+use waterui_graphics::canvas::Drawing;
+use waterui_graphics::color::WorkingColor;
+use waterui_graphics::{OffscreenRenderer, OffscreenSize};
 use waterui_math::ast::MathStyle;
-use waterui_math::view::{DEFAULT_MATH_FAMILY, MathContent};
+use waterui_math::view::{DEFAULT_MATH_FAMILY, Typeset};
 use waterui_text::FontCollection;
 
-/// Paints an opaque ground under the formula.
-///
-/// The renderer leaves the canvas transparent, and a transparent PNG of black
-/// glyphs is invisible in half the viewers someone might open it in. A review
-/// image nobody can see is not a review image.
-struct OnWhite {
-    formula: MathContent,
-}
-
-impl SceneContent for OnWhite {
-    fn build_scene(&mut self, scene: &mut dyn Scene2D, width: f32, height: f32) -> bool {
-        let ground = Rect::new(0.0, 0.0, f64::from(width), f64::from(height));
-        scene.fill(
-            Fill::NonZero,
-            Affine::IDENTITY,
-            &Brush::Solid(Color::WHITE),
-            None,
-            &ground.to_path(0.1),
-        );
-        self.formula.build_scene(scene, width, height)
-    }
-
-    fn set_invalidator(&mut self, invalidator: Option<SceneInvalidator>) {
-        self.formula.set_invalidator(invalidator);
-    }
-}
-
-/// Formulas chosen to exercise each construct the layout engine implements,
-/// and the ones an earlier attempt got visibly wrong.
 const GALLERY: &[(&str, &str)] = &[
-    // Spacing: the gaps around `+` and `=` must differ, and differ from none.
-    ("spacing", r"a+b=c"),
-    // Fractions, including a nested one that must shrink.
-    ("fraction", r"\frac{a+b}{c}"),
-    ("fraction_nested", r"\frac{1}{1+\frac{1}{1+x}}"),
-    // Scripts, including one on a slanted base where italic correction shows.
-    ("scripts", r"x^2 + y_i - z_n^2"),
-    ("scripts_nested", r"e^{x^{2}}"),
-    // Radicals: a plain one, one over a fraction (the tall case), and an index.
-    ("radical", r"\sqrt{x}"),
-    ("radical_tall", r"\sqrt{\frac{a+b}{c+d}}"),
-    ("radical_index", r"\sqrt[3]{x}"),
-    // Stretchy fences around something tall.
-    ("fences", r"\left(\frac{a}{b}\right)"),
-    // Greek, including letters an earlier hand-written table was missing.
-    ("greek", r"\alpha\beta\psi\eta\tau\xi\zeta"),
-    // Upright function names next to italic variables.
-    ("functions", r"\sin x + \log y"),
-    // Literal text keeps its spaces and stays upright.
-    ("text", r"\text{if } x > 0"),
-    // Large operators with limits.
-    ("sum", r"\sum_{i=1}^{n} i"),
-    // A formula combining most of the above.
     ("quadratic", r"x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}"),
+    ("summation", r"\sum_{k=0}^{n} k^2 = \frac{n(n+1)(2n+1)}{6}"),
+    ("definite_integral", r"\int_0^\pi \sin(x)\,\mathrm{d}x = 2"),
+    ("euler_identity", r"e^{i\pi} + 1 = 0"),
+    ("pythagoras", r"a^2 + b^2 = c^2"),
+    ("nested_radical", r"\sqrt{1 + \sqrt{1 + \sqrt{1 + x}}}"),
+    ("binomial", r"\binom{n}{k} = \frac{n!}{k!(n-k)!}"),
+    ("limit", r"\lim_{h \to 0} \frac{f(x+h) - f(x)}{h}"),
+    (
+        "continued_fraction",
+        r"x = a_0 + \frac{1}{a_1 + \frac{1}{a_2}}",
+    ),
+    (
+        "greek",
+        r"\alpha \beta \gamma \delta \epsilon \zeta \eta \theta",
+    ),
+    ("exponents", r"x^{2n} + y^{2n} = z^{2n}"),
+    (
+        "stretchy_delimiters",
+        r"\left( \frac{a}{b} \right) + \left[ c \right]",
+    ),
+    ("sub_sup", r"x_i^2 + y_j^2"),
+    ("product", r"\prod_{i=1}^{n} i = n!"),
 ];
 
 fn output_directory() -> PathBuf {
-    std::env::var("WATERUI_MATH_GALLERY_DIR").map_or_else(
-        |_| std::env::temp_dir().join("waterui_math_gallery"),
+    let directory = std::env::var("WATERUI_MATH_GALLERY_DIR").map_or_else(
+        |_| PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("waterui-math-gallery"),
         PathBuf::from,
-    )
+    );
+    std::fs::create_dir_all(&directory)
+        .unwrap_or_else(|error| panic!("could not create {}: {error}", directory.display()));
+    directory
+}
+
+/// A formula on white, in a box of `size`: the gallery is reviewed as images,
+/// and a transparent ground lets a hole in a glyph read as the absence it is.
+fn on_white(typeset: &Typeset, size: Size) -> Drawing {
+    Drawing::record(size, |cx| {
+        cx.fill(Rect::from_size(size), WorkingColor::WHITE);
+        typeset.record(cx, WorkingColor::BLACK);
+    })
 }
 
 #[test]
-fn renders_the_formula_gallery_on_both_scene_engines() {
+fn renders_the_formula_gallery_on_both_engines() {
     let directory = output_directory();
-    std::fs::create_dir_all(&directory).expect("gallery directory must be creatable");
+    let gpu =
+        OffscreenRenderer::new().expect("the formula gallery requires a GPU engine on this host");
+    let cpu = OffscreenRenderer::cpu().expect("the formula gallery requires the CPU rasteriser");
+    let pixels = OffscreenSize::try_from_pixels(560, 200).expect("the gallery size is nonzero");
+    let size = Size::new(560.0, 200.0);
 
-    let runtime = pollster::block_on(GpuRuntime::new())
-        .expect("the formula gallery requires a working GPU runtime");
-    let size = OffscreenSize::try_from_pixels(560, 200).expect("gallery size must be valid");
-
-    // The one collection the gallery typesets against, standing in for the one
-    // a host installs. Discovering the system's fonts is the expensive part, so
-    // it happens here rather than per formula — which is the whole point of the
-    // collection being shared.
     let fonts = FontCollection::system();
+    for &(name, source) in GALLERY {
+        let typeset = Typeset::new(
+            &fonts,
+            DEFAULT_MATH_FAMILY,
+            source,
+            48.0,
+            MathStyle::Display,
+        )
+        .unwrap_or_else(|error| panic!("could not typeset {source}: {error}"));
+        // One drawing renders on both engines, each registering the math face
+        // for itself.
+        let drawing = on_white(&typeset, size);
 
-    let mut written = Vec::new();
-    for (name, source) in GALLERY {
-        for (engine, engine_name) in [
-            (SceneEngine::Classic, "classic"),
-            (SceneEngine::Hybrid, "hybrid"),
-        ] {
-            let content = MathContent::new(
-                fonts.clone(),
-                suiteki::Str::from(*source),
-                48.0,
-                MathStyle::Display,
-                DEFAULT_MATH_FAMILY,
-                Brush::Solid(Color::BLACK),
-            );
-            let surface = SceneView::new(OnWhite { formula: content }).into_gpu_surface();
-            let config = OffscreenRenderConfig::new(size)
-                .format(wgpu::TextureFormat::Rgba8Unorm)
-                .scene_engine(engine);
-            let mut env = waterui_core::Environment::new();
-            let output = pollster::block_on(surface.render_offscreen(&runtime, config, &mut env))
-                .unwrap_or_else(|error| {
-                    panic!("`{source}` must render on the {engine_name} engine: {error}")
-                });
+        let image = gpu
+            .render_drawing(&drawing, pixels)
+            .unwrap_or_else(|error| panic!("could not render {source} on the GPU engine: {error}"));
+        let path = directory.join(format!("{name}_gpu.png"));
+        image
+            .save_png(&path)
+            .unwrap_or_else(|error| panic!("could not write {}: {error}", path.display()));
+        println!("saved {}", path.display());
 
-            let path = directory.join(format!("{name}_{engine_name}.png"));
-            output
-                .save_png(&path)
-                .expect("gallery PNG must be writable");
-            written.push(path);
-        }
+        let image = cpu
+            .render_drawing(&drawing, pixels)
+            .unwrap_or_else(|error| {
+                panic!("could not render {source} on the CPU rasteriser: {error}")
+            });
+        let path = directory.join(format!("{name}_cpu.png"));
+        image
+            .save_png(&path)
+            .unwrap_or_else(|error| panic!("could not write {}: {error}", path.display()));
+        println!("saved {}", path.display());
     }
-
-    write_index(&directory);
-    println!(
-        "wrote {} formula renderings to {}",
-        written.len(),
-        directory.display()
-    );
 }
 
-/// A companion index so whoever reviews the images knows what each one is
-/// supposed to be.
-fn write_index(directory: &Path) {
-    let mut lines = Vec::with_capacity(GALLERY.len());
-    for (name, source) in GALLERY {
-        lines.push(format!("{name}: {source}"));
+/// A PNG stays out of the repository: it is a render artifact, so the path is
+/// under `target/` next to the binaries.
+#[test]
+fn gallery_output_directory_defaults_under_target() {
+    // `WATERUI_MATH_GALLERY_DIR` is the override for a human reviewing images.
+    if std::env::var("WATERUI_MATH_GALLERY_DIR").is_err() {
+        assert!(output_directory().is_absolute());
     }
-    std::fs::write(directory.join("index.txt"), lines.join("\n"))
-        .expect("gallery index must be writable");
+}
+
+#[test]
+fn gallery_directory_is_created_on_first_use() {
+    let directory = output_directory();
+    assert!(Path::new(&directory).is_dir());
 }

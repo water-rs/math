@@ -100,6 +100,40 @@ impl MathStyle {
     }
 }
 
+/// The alphabet a group of atoms is set in: `MathML`'s `mathvariant`.
+///
+/// This is what `\mathrm` and its siblings select. A variant changes which
+/// codepoint a letter is drawn from — mathematical bold lives in a different
+/// Unicode block than mathematical italic — so it is a property of the atoms,
+/// not a colour or a size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MathVariant {
+    /// Upright letters and digits: `\mathrm`.
+    Normal,
+    /// Bold letters and digits: `\mathbf`.
+    Bold,
+    /// Italic letters: `\mathit`.
+    Italic,
+    /// Sans-serif letters and digits: `\mathsf`.
+    SansSerif,
+    /// Monospace letters and digits: `\mathtt`.
+    Monospace,
+}
+
+impl MathVariant {
+    /// The `MathML` `mathvariant` keyword.
+    #[must_use]
+    pub const fn mathml(self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::Bold => "bold",
+            Self::Italic => "italic",
+            Self::SansSerif => "sans-serif",
+            Self::Monospace => "monospace",
+        }
+    }
+}
+
 /// An operator, relation, fence or punctuation mark.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Operator {
@@ -179,6 +213,18 @@ pub enum MathItem {
     /// automatic inter-atom spacing in [`crate::spacing`]: that is a property
     /// of the classes either side of a gap, this is an author's instruction.
     Space(f32),
+    /// A group set in one math alphabet: what `\mathrm{}` and its siblings
+    /// produce.
+    ///
+    /// `MathML` `mathvariant` on the enclosed token elements. The variant is
+    /// the alphabet the leaves are drawn from, not something spacing sees —
+    /// the group classifies as what it wraps.
+    Styled {
+        /// The alphabet the group is set in.
+        variant: MathVariant,
+        /// The expression the variant covers.
+        body: Box<Self>,
+    },
     /// A group held between fences that grow to fit it.
     Fenced {
         /// The opening fence, absent for a half-open group.
@@ -220,6 +266,7 @@ impl MathItem {
         match self {
             Self::Operator(operator) => operator.class,
             Self::Fenced { .. } => MathClass::Inner,
+            Self::Styled { body, .. } => body.class(),
             Self::Row(items) => match items.as_slice() {
                 [only] => only.class(),
                 _ => MathClass::Ord,

@@ -15,10 +15,12 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use pulldown_latex::Storage;
-use pulldown_latex::event::{Content, DelimiterType, Event, Grouping, ScriptType, Visual};
+use pulldown_latex::event::{
+    Content, DelimiterType, Event, Font, Grouping, ScriptType, StateChange, Visual,
+};
 use suiteki::Str;
 
-use crate::ast::{MathClass, MathItem, Operator};
+use crate::ast::{MathClass, MathItem, MathVariant, Operator};
 
 /// Why a formula could not be read.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -64,9 +66,13 @@ pub fn parse(source: &str) -> Result<MathItem, LatexError> {
     let mut reader = Reader {
         events: &events,
         position: 0,
+        variant: None,
     };
     let mut items = Vec::new();
     while reader.position < reader.events.len() {
+        if reader.state_change()? {
+            continue;
+        }
         items.push(reader.item()?);
     }
     Ok(MathItem::row(items))
@@ -75,12 +81,62 @@ pub fn parse(source: &str) -> Result<MathItem, LatexError> {
 struct Reader<'a, 'b> {
     events: &'a [Event<'b>],
     position: usize,
+    /// The math alphabet the group being read is set in.
+    variant: Option<MathVariant>,
 }
 
 impl Reader<'_, '_> {
     /// Reads exactly one item: an atom, a group, or a construct with its
-    /// operands.
+    /// operands. A `\mathXX` alphabet in force wraps the node so the alphabet
+    /// survives to layout and `MathML`.
     fn item(&mut self) -> Result<MathItem, LatexError> {
+        let item = self.node()?;
+        Ok(match self.variant {
+            Some(variant) => MathItem::Styled {
+                variant,
+                body: Box::new(item),
+            },
+            None => item,
+        })
+    }
+
+    /// Consumes a [`Event::StateChange`] at the read position, if one is
+    /// there. Returns whether the position moved — a state change produces no
+    /// node of its own, it alters the alphabet the following items take.
+    fn state_change(&mut self) -> Result<bool, LatexError> {
+        let Some(&Event::StateChange(change)) = self.events.get(self.position) else {
+            return Ok(false);
+        };
+        self.position += 1;
+
+        match change {
+            StateChange::Font(font) => {
+                self.variant = match font {
+                    None => None,
+                    Some(Font::UpRight) => Some(MathVariant::Normal),
+                    Some(Font::Italic) => Some(MathVariant::Italic),
+                    Some(Font::Bold) => Some(MathVariant::Bold),
+                    Some(Font::SansSerif) => Some(MathVariant::SansSerif),
+                    Some(Font::Monospace) => Some(MathVariant::Monospace),
+                    Some(_) => {
+                        return Err(LatexError::Unsupported {
+                            construct: "calligraphic, fraktur and double-struck fonts",
+                        });
+                    }
+                };
+                Ok(true)
+            }
+            StateChange::Style(_) => Err(LatexError::Unsupported {
+                construct: "text-size style commands",
+            }),
+            StateChange::Color(_) => Err(LatexError::Unsupported {
+                construct: "colour changes",
+            }),
+        }
+    }
+
+    /// The construct the position holds as one node.
+    fn node(&mut self) -> Result<MathItem, LatexError> {
         // Taken by value so the reader stays free to advance while a construct
         // reads the operands that follow it.
         let Some(event) = self.events.get(self.position).cloned() else {
@@ -99,13 +155,13 @@ impl Reader<'_, '_> {
             Event::Visual(visual) => self.visual(visual),
             Event::Script { ty, .. } => self.script(ty),
             Event::Space { width, .. } => Ok(MathItem::Space(width.map_or(0.0, em_of))),
-            // A state change alters font variant or size for what follows.
-            // Honouring it needs the mathematical-alphanumeric mapping for each
-            // variant, which is a separate piece of work; ignoring it would
-            // render bold as regular with nothing to say so.
-            Event::StateChange(_) => Err(LatexError::Unsupported {
-                construct: "font and style changes",
-            }),
+            // A state change in operand position applies to the operand: fold
+            // it into state and read the item it governs.
+            Event::StateChange(_) => {
+                self.position -= 1;
+                self.state_change()?;
+                self.node()
+            }
             Event::EnvironmentFlow(_) => Err(LatexError::Unsupported {
                 construct: "multi-line and tabular environments",
             }),
@@ -113,6 +169,16 @@ impl Reader<'_, '_> {
     }
 
     fn group(&mut self, grouping: &Grouping) -> Result<MathItem, LatexError> {
+        // A font command's effect is scoped to the group that carries it: the
+        // group's contents and any groups nested inside inherit the alphabet,
+        // which ends with the group.
+        let inherited = self.variant;
+        let item = self.group_item(grouping);
+        self.variant = inherited;
+        item
+    }
+
+    fn group_item(&mut self, grouping: &Grouping) -> Result<MathItem, LatexError> {
         match grouping {
             Grouping::Normal => {
                 let items = self.until_end()?;
@@ -147,6 +213,9 @@ impl Reader<'_, '_> {
                 Some(Event::End) => {
                     self.position += 1;
                     return Ok(items);
+                }
+                Some(Event::StateChange(_)) => {
+                    self.state_change()?;
                 }
                 Some(_) => items.push(self.item()?),
             }
@@ -294,7 +363,7 @@ fn em_of(dimension: pulldown_latex::event::Dimension) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::MathStyle;
+    use crate::ast::{MathStyle, MathVariant};
     use crate::spacing::SpacingTable;
 
     fn parsed(source: &str) -> MathItem {
@@ -404,6 +473,47 @@ mod tests {
             text.ends_with(' '),
             "the trailing space inside \\text must survive, got {text:?}"
         );
+    }
+
+    /// The math-alphabet commands select the group's alphabet: `\mathrm{d}`
+    /// is an upright identifier, not an error — the gallery's integral needs
+    /// the differential to exist at all.
+    #[test]
+    fn math_alphabet_commands_style_their_group() {
+        let MathItem::Styled { variant, body } = parsed(r"\mathrm{d}") else {
+            panic!("expected a styled group");
+        };
+        assert_eq!(variant, MathVariant::Normal);
+        assert!(
+            matches!(body.as_ref(), MathItem::Ident(text) if text.as_str() == "d"),
+            "the styled group must wrap the letter, got {body:?}"
+        );
+
+        for (source, expected) in [
+            (r"\mathbf{v}", MathVariant::Bold),
+            (r"\mathit{x}", MathVariant::Italic),
+            (r"\mathsf{s}", MathVariant::SansSerif),
+            (r"\mathtt{m}", MathVariant::Monospace),
+        ] {
+            let MathItem::Styled { variant, .. } = parsed(source) else {
+                panic!("expected `{source}` to parse to a styled group");
+            };
+            assert_eq!(variant, expected, "`{source}` picked the wrong alphabet");
+        }
+    }
+
+    /// A font command's reach ends with its group: `x\mathrm{d}y` leaves `x`
+    /// and `y` in the formula's own alphabet.
+    #[test]
+    fn a_math_alphabet_ends_with_its_group() {
+        let MathItem::Row(items) = parsed(r"x\mathrm{d}y") else {
+            panic!("expected a row");
+        };
+        let styled = items
+            .iter()
+            .filter(|item| matches!(item, MathItem::Styled { .. }))
+            .count();
+        assert_eq!(styled, 1, "only `d` is upright, got {items:?}");
     }
 
     /// A multi-letter function name is one identifier, not a product of
