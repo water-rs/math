@@ -2764,7 +2764,7 @@ dependencies = [
 [[package]]
 name = "naga"
 version = "30.0.1"
-source = "git+https://github.com/water-rs/wgpu?branch=fix%2Fmetal-shared-memory-v30#59bd2fd583ed077030d3ed48db92ecf6e7b9b1e6"
+source = "git+https://github.com/water-rs/wgpu?branch=fix%2Fmetal-shared-memory-v30#9e0ab702c11f5db7b62670eaf9aeaf8a2f8ff7b5"
 dependencies = [
  "arrayvec",
  "bit-set 0.10.0",
@@ -5409,7 +5409,7 @@ dependencies = [
 
 [[package]]
 name = "waterui-math"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "kurbo",
  "mathcat",
@@ -5673,7 +5673,7 @@ checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
 [[package]]
 name = "wgpu"
 version = "30.0.1"
-source = "git+https://github.com/water-rs/wgpu?branch=fix%2Fmetal-shared-memory-v30#59bd2fd583ed077030d3ed48db92ecf6e7b9b1e6"
+source = "git+https://github.com/water-rs/wgpu?branch=fix%2Fmetal-shared-memory-v30#9e0ab702c11f5db7b62670eaf9aeaf8a2f8ff7b5"
 dependencies = [
  "arrayvec",
  "bitflags 2.13.2",
