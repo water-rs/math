@@ -57,6 +57,10 @@ jobs:
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev
       - uses: MarcoIeni/release-plz-action@v0.5
         id: release-plz
         with:
