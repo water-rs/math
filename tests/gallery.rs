@@ -56,6 +56,10 @@ fn output_directory() -> PathBuf {
     directory
 }
 
+fn artifacts_directory() -> Option<PathBuf> {
+    std::env::var_os("WATERUI_TEST_ARTIFACTS_DIR").map(|dir| PathBuf::from(dir).join("math"))
+}
+
 /// A formula on white, in a box of `size`: the gallery is reviewed as images,
 /// and a transparent ground lets a hole in a glyph read as the absence it is.
 fn on_white(typeset: &Typeset, size: Size) -> Drawing {
@@ -68,6 +72,7 @@ fn on_white(typeset: &Typeset, size: Size) -> Drawing {
 #[test]
 fn renders_the_formula_gallery_on_both_engines() {
     let directory = output_directory();
+    let artifacts = artifacts_directory();
     let gpu =
         OffscreenRenderer::new().expect("the formula gallery requires a GPU engine on this host");
     let cpu = OffscreenRenderer::cpu().expect("the formula gallery requires the CPU rasteriser");
@@ -87,6 +92,12 @@ fn renders_the_formula_gallery_on_both_engines() {
         // One drawing renders on both engines, each registering the math face
         // for itself.
         let drawing = on_white(&typeset, size);
+        let case_dir = artifacts.as_ref().map(|root| {
+            let dir = root.join(name);
+            std::fs::create_dir_all(&dir)
+                .unwrap_or_else(|error| panic!("could not create {}: {error}", dir.display()));
+            dir
+        });
 
         let image = gpu
             .render_drawing(&drawing, pixels)
@@ -95,6 +106,12 @@ fn renders_the_formula_gallery_on_both_engines() {
         image
             .save_png(&path)
             .unwrap_or_else(|error| panic!("could not write {}: {error}", path.display()));
+        if let Some(dir) = &case_dir {
+            let canonical = dir.join("gpu.png");
+            image
+                .save_png(&canonical)
+                .unwrap_or_else(|error| panic!("could not write {}: {error}", canonical.display()));
+        }
         println!("saved {}", path.display());
 
         let image = cpu
@@ -106,6 +123,12 @@ fn renders_the_formula_gallery_on_both_engines() {
         image
             .save_png(&path)
             .unwrap_or_else(|error| panic!("could not write {}: {error}", path.display()));
+        if let Some(dir) = &case_dir {
+            let canonical = dir.join("cpu.png");
+            image
+                .save_png(&canonical)
+                .unwrap_or_else(|error| panic!("could not write {}: {error}", canonical.display()));
+        }
         println!("saved {}", path.display());
     }
 }
