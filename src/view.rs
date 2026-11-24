@@ -12,7 +12,7 @@ use suiteki::Str;
 use waterui_core::layout::Size;
 use waterui_core::{Computed, Environment, View};
 use waterui_graphics::canvas::{Canvas, Cx, DrawingCx, Font};
-use waterui_graphics::color::{Color, ForegroundColor, WorkingColor};
+use waterui_graphics::color::{Color, WorkingColor, installed_color_signal, token};
 use waterui_layout::frame::Frame;
 use waterui_text::FontCollection;
 
@@ -383,10 +383,7 @@ impl View for Math {
             .color
             .clone()
             .map(|color| color.resolve(env))
-            .or_else(|| {
-                env.query::<ForegroundColor, Computed<WorkingColor>>()
-                    .cloned()
-            })
+            .or_else(|| installed_color_signal::<token::Foreground>(env))
             .unwrap_or_else(|| Computed::constant(WorkingColor::BLACK));
 
         let setter = Rc::new(Setter::new(
